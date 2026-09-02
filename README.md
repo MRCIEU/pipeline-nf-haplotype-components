@@ -23,7 +23,7 @@ flowchart TD
     G[map_file] --> E
     E --> F(compute_HCs)
     D --> F
-    F --> H[HCs.txt]
+    F --> H[HCs.csv]
 ```
 
 Each process runs in its own Docker container (see [Dependencies](#dependencies) below); container images are configured per-process in [nextflow.config](nextflow.config).
@@ -40,7 +40,7 @@ Each process runs in its own Docker container (see [Dependencies](#dependencies)
 | `--vcf_file_list` | Yes      | *(none)*     | Path to a plain text file with one line per chromosome: `<chromosome index> <path to BCF/VCF file>`, whitespace-separated.                                          |
 | `--map_file`      | Yes      | *(none)*     | Path to a plain text file with one line per chromosome giving the genetic map length, in the same order as `vcf_file_list`.                                          |
 | `--nHCs`          | No       | `150`        | Number of haplotype components to compute.                                                                                                                          |
-| `--outfile`       | No       | `HCs.txt`    | Name of the output file containing the computed haplotype components.                                                                                               |
+| `--outfile`       | No       | `HCs.csv`    | Name of the output file containing the computed haplotype components.                                                                                               |
 | `--resultsdir`    | No       | `results`    | Directory that final results are published to.                                                                                                                      |
 
 ## Usage
@@ -53,7 +53,7 @@ nextflow run main.nf \
 
 ## Output
 
-The pipeline publishes the computed haplotype components to `<resultsdir>/<outfile>` (by default `results/HCs.txt`): a CSV file with one row per haplotype and columns `HC1, HC2, ..., HC<nHCs>`.
+The pipeline publishes the computed haplotype components to `<resultsdir>/<outfile>` (by default `results/HCs.csv`): a CSV file with one row per haplotype and columns `HC1, HC2, ..., HC<nHCs>`.
 
 ## Dependencies
 
