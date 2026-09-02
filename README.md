@@ -5,12 +5,17 @@ A [Nextflow](https://www.nextflow.io/) (DSL2) pipeline for computing haplotype c
 ## Pipeline overview
 
 For each chromosome (in parallel):
+
 1. **`count_snps`** — counts the number of SNPs in the input BCF/VCF (`bcftools`).
+
 2. **`paint`** — performs PBWT sparse chromosome painting, producing a chunklengths file per chromosome (`pbwt -paintSparse`).
 
 Across chromosomes:
+
 3. **`count_individuals`** — determines the (single, shared) number of individuals across all input files (`bcftools`).
+
 4. **`generate_chunk_length_matrix`** — combines the per-chromosome chunklengths files, weighted by SNP counts and genetic map lengths, into a single genome-wide sparse chunk-length matrix (`combine`, a Rust CLI tool).
+
 5. **`compute_HCs`** — Computes a truncated SVD from the sparse matrix, and writes the resulting haplotype components (`calculate_haplotype_components`, an R script using `sparsesvd`).
 
 ```mermaid
