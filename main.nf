@@ -17,7 +17,7 @@ workflow {
             .readLines()
         ) |\
         map { line -> 
-                def fields = line.split("\s+")
+                def fields = line.split("\\h+")
                 if (fields.size() != 2) {
                     throw new Exception("Each line in the vcf_file_list must contain exactly two fields: chromosome number and path to vcf/bcf file.")
                 }
