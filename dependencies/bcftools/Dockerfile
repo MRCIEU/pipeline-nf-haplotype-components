@@ -7,7 +7,7 @@ RUN wget https://github.com/samtools/bcftools/releases/download/1.24/bcftools-1.
     cd htslib-1.24 && \
     make
 
-FROM debian:13
+FROM debian:13-slim
 
 RUN apt-get -y update && \
         apt-get -y install \

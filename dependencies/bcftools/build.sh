@@ -1,1 +1,1 @@
-docker build --platform linux/amd64 --no-cache -t mrcieu/hcs-dev:bcftools-1.24 .
+docker build --platform linux/amd64 --no-cache -t mrcieu/pipeline-nf-haplotype-components:bcftools-1.24 .

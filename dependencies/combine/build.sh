@@ -1,1 +1,1 @@
-docker build --platform linux/amd64 --no-cache -t mrcieu/hcs-dev:combine-v0.3.0 .
+docker build --platform linux/amd64 --no-cache -t mrcieu/pipeline-nf-haplotype-components:combine-v0.3.0 .
