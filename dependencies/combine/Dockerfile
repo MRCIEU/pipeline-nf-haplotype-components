@@ -1,28 +1,25 @@
-FROM alpine:3.23 AS build
+FROM rust:1.94-alpine3.23 AS build
 
 RUN apk add --update --no-cache \
         build-base \
         cmake \
-        curl \
-        git \
-        openssh
-
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs/ | sh -s -- -y
+        git
 
 RUN git clone https://github.com/MRCIEU/combine-pbwt-sparsepaint.git && \
     cd combine-pbwt-sparsepaint && \
-    git checkout v0.3.0
+    git checkout v0.6.0
 
 WORKDIR /combine-pbwt-sparsepaint
 
-RUN source $HOME/.cargo/env && \
-    cargo build --release
+RUN cargo build --release --locked
 
+# alpine (rather than scratch) final stage, because Nextflow needs a shell and ps in the container
 FROM alpine:3.23
 
 RUN apk add --update --no-cache \
         procps
 
 COPY --from=build /combine-pbwt-sparsepaint/target/release/combine /usr/local/bin/combine
+COPY --from=build /combine-pbwt-sparsepaint/LICENSE /combine-pbwt-sparsepaint/NOTICE /usr/share/licenses/combine/
 
 CMD ["combine", "-h"]

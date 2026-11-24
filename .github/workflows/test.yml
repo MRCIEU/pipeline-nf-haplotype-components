@@ -1,0 +1,110 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # The pipeline's images aren't on a registry, so build them here. Each image is tagged as in its
+      # dependencies/<tool>/build.sh (which must match nextflow.config), and loaded into the runner's docker.
+      # Layers are cached between runs (GitHub Actions cache), so unchanged images rebuild quickly.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Read image tags from build.sh
+        id: tags
+        run: |
+          for tool in bcftools pbwt combine calculate_HCs; do
+            tag=$(grep -o -- '-t [^ ]*' "dependencies/${tool}/build.sh" | cut -d' ' -f2)
+            echo "${tool}=${tag}" >> "$GITHUB_OUTPUT"
+            echo "${tool}: ${tag}"
+          done
+
+      - name: Build bcftools image
+        uses: docker/build-push-action@v7
+        with:
+          context: dependencies/bcftools
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.tags.outputs.bcftools }}
+          cache-from: type=gha,scope=bcftools
+          cache-to: type=gha,mode=max,scope=bcftools
+
+      - name: Build pbwt image
+        uses: docker/build-push-action@v7
+        with:
+          context: dependencies/pbwt
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.tags.outputs.pbwt }}
+          cache-from: type=gha,scope=pbwt
+          cache-to: type=gha,mode=max,scope=pbwt
+
+      - name: Build combine image
+        uses: docker/build-push-action@v7
+        with:
+          context: dependencies/combine
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.tags.outputs.combine }}
+          cache-from: type=gha,scope=combine
+          cache-to: type=gha,mode=max,scope=combine
+
+      - name: Build calculate_HCs image
+        uses: docker/build-push-action@v7
+        with:
+          context: dependencies/calculate_HCs
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.tags.outputs.calculate_HCs }}
+          cache-from: type=gha,scope=calculate_HCs
+          cache-to: type=gha,mode=max,scope=calculate_HCs
+
+      - name: Check every container in nextflow.config was built
+        run: |
+          for image in $(grep -o "container = '[^']*'" nextflow.config | cut -d"'" -f2 | sort -u); do
+            docker image inspect "${image}" > /dev/null || { echo "::error::${image} (nextflow.config) was not built"; exit 1; }
+            echo "ok: ${image}"
+          done
+
+      - name: Set up Nextflow
+        uses: nf-core/setup-nextflow@v3
+        with:
+          version: "26.10.7"
+          java-version: "21"
+
+      - name: HC-step tests
+        run: |
+          docker run --rm -v "$PWD":/repo -w /repo \
+            ${{ steps.tags.outputs.calculate_HCs }} Rscript tests/test_hc_step.R
+
+      - name: Pipeline tests
+        run: tests/test_pipeline.sh
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-logs
+          path: |
+            tests/.tmp/**/*.log
+            .nextflow.log*
+          if-no-files-found: ignore
+          include-hidden-files: true
