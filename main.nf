@@ -22,6 +22,9 @@ params.keep_samples = ""
 
 params.outfile = "HCs.csv"
 params.diagnostics = "HC_diagnostics.tsv"
+// also publish the combined chunk length matrix, its row sums, and the sample list its indices refer to,
+// to <resultsdir>/matrix, e.g. to re-run the HC step without repainting
+params.publish_matrix = false
 params.resultsdir = "results"
 
 workflow {
@@ -104,7 +107,7 @@ workflow {
                 t[0],
                 t[1],
                 t[2],
-                params.map_file,
+                file(params.map_file, checkIfExists: true),
             ]
         } |\
         generate_chunk_length_matrix |\
@@ -146,7 +149,7 @@ process subset_samples {
 }
 
 process check_samples {
-    // publishDir "${params.resultsdir}/intermediate", mode: 'copy'
+    publishDir "${params.resultsdir}/matrix", mode: 'copy', enabled: params.publish_matrix.toString().toBoolean()
 
     input:
     path(bcfs)
@@ -196,7 +199,7 @@ process paint {
 }
 
 process generate_chunk_length_matrix {
-    // publishDir "${params.resultsdir}/intermediate", mode: 'copy'
+    publishDir "${params.resultsdir}/matrix", mode: 'copy', enabled: params.publish_matrix.toString().toBoolean()
 
     input:
     tuple path(chunk_files), path(chunk_filenames_list), path(snp_counts_list), path(map_lengths_list)

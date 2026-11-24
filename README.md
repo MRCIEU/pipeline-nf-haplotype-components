@@ -50,6 +50,7 @@ Each process runs in its own Docker container (see [Dependencies](#dependencies)
 | `--nHCs`          | No       | `150`        | Number of haplotype components to compute.                                                                                                                          |
 | `--outfile`       | No       | `HCs.csv`    | Name of the output file containing the computed haplotype components.                                                                                               |
 | `--diagnostics`   | No       | `HC_diagnostics.tsv` | Name of the output file of per-sample diagnostics.                                                                                                          |
+| `--publish_matrix` | No     | `false`      | Also publish the combined chunk-length matrix (`combined.chunklengths.txt.gz`), its row sums (`combined.chunklengths.sums`) and the sample list its indices refer to (`samples.txt`) to `<resultsdir>/matrix`, e.g. to re-run the HC step without repainting. |
 | `--resultsdir`    | No       | `results`    | Directory that final results are published to.                                                                                                                      |
 | `--paint_nchunks` | No       | `100`        | `pbwt -paintSparse`: number of chunks per region.                                                                                                                    |
 | `--paint_ploidy`  | No       | `2`          | `pbwt -paintSparse`: ploidy.                                                                                                                                         |
@@ -82,6 +83,8 @@ The pipeline publishes two files to `<resultsdir>`:
 | `largest_share`   | Share of the row taken by its largest entry. In 1000G the median is about 0.02 for samples without close relatives in the data and about 0.75 for parent–child trio members, so high values usually mean a close relative is in the dataset. |
 | `reweight_factor` | Factor the row was scaled by with `--reweight` (1 otherwise). |
 | `status`          | `fitted`: the individual's row was used in the SVD. |
+
+With `--publish_matrix`, `<resultsdir>/matrix` also contains the combined chunk-length matrix (`combined.chunklengths.txt.gz`: `index1 index2 value`, space-separated, 1-based indices into `samples.txt`), its row sums before `--restrict` (`combined.chunklengths.sums`: `index1 sum`), and `samples.txt`.
 
 ## Testing
 
