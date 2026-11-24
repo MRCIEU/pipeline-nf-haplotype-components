@@ -1,0 +1,5 @@
+testdata/snps/
+testdata/meta/
+work/
+results/
+.nextflow*

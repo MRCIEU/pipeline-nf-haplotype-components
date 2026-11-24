@@ -4,6 +4,12 @@ params.vcf_file_list = ""
 params.map_file = ""
 params.nHCs = 150
 
+// pbwt -paintSparse <prefix> <nchunks> <ploidy> <cutoff>:
+// number of chunks per region, ploidy, and the minimum match length (in SNPs) for a match to be counted
+params.paint_nchunks = 100
+params.paint_ploidy = 2
+params.paint_cutoff = 500
+
 params.outfile = "HCs.csv"
 params.resultsdir = "results"
 
@@ -11,17 +17,18 @@ workflow {
 
     // a (channel of a) tuple of the chromosome index and the path to the bcf file for that chromosome,
     // parsed from a plain text file with one line per chromosome, each line containing the chromosome index and the path to the bcf file for that chromosome
-    // with columns separated by whitespace
+    // with columns separated by whitespace. Relative paths are resolved against the directory containing vcf_file_list
+    def vcf_file_list = file(params.vcf_file_list)
     c_vcf = channel.from(
-        file(params.vcf_file_list)
+        vcf_file_list
             .readLines()
         ) |\
-        map { line -> 
+        map { line ->
                 def fields = line.split("\\h+")
                 if (fields.size() != 2) {
                     throw new Exception("Each line in the vcf_file_list must contain exactly two fields: chromosome number and path to vcf/bcf file.")
                 }
-                return [String.format('%02d', Integer.parseInt(fields[0])), file(fields[1])]
+                return [String.format('%02d', Integer.parseInt(fields[0])), file(vcf_file_list.parent.resolve(fields[1]).toString())]
             
         }
     
@@ -134,7 +141,7 @@ process paint {
 
     script:
     """
-    pbwt -readVcfGT ${bcf} -paintSparse chr${chr} 100 2 500
+    pbwt -readVcfGT ${bcf} -paintSparse chr${chr} ${params.paint_nchunks} ${params.paint_ploidy} ${params.paint_cutoff}
     """
 }
 
