@@ -26,6 +26,10 @@ option_list <- list(
               help = paste("optional file of sample ID pairs (e.g. relatives) whose entries are removed from the matrix,",
                            "in both directions: the first two whitespace-separated columns, other columns ignored.",
                            "Pairs with an ID not in --samples (or a header line) are skipped")),
+  make_option("--fit_samples", type = "character", default = NA,
+              help = paste("optional file of sample IDs, one per line: only these samples' rows and columns of",
+                           "the matrix are used for the SVD (their entries to other samples are removed), and only",
+                           "they get HCs. IDs not in --samples are skipped")),
   make_option("--reweight", action = "store_true", default = FALSE,
               help = paste("rescale each row's values to add up to its sum in --sums (its total before",
                            "combine --restrict and --remove_pairs removed entries) before the SVD")),
@@ -68,7 +72,6 @@ samples <- samples[nzchar(samples)]
 nind <- length(samples)
 if (nind == 0) fail("no samples in", opt$samples)
 if (anyDuplicated(samples)) fail("duplicate sample IDs in", opt$samples)
-if (opt$nhcs >= nind) fail(sprintf("--nhcs (%d) must be less than the number of samples (%d)", opt$nhcs, nind))
 cat(sprintf("  %d samples\n", nind))
 
 cat("Reading matrix\n")
@@ -107,6 +110,26 @@ if (!is.na(opt$remove_pairs)) {
   cat(sprintf("  %d pairs (%d skipped: an ID is not in %s); removed %d entries from %d rows\n",
               nrow(pairs), nskip, opt$samples, nrow(removed), uniqueN(removed$i)))
 }
+# --- keeping only the fit samples ---
+rows[, `:=`(fitted = TRUE, total_outside = 0)]
+if (!is.na(opt$fit_samples)) {
+  cat("Keeping only the fit samples\n")
+  fit_ids <- unique(readLines(opt$fit_samples))
+  fit_ids <- fit_ids[nzchar(fit_ids)]
+  nskip <- sum(!fit_ids %in% samples)
+  rows[, fitted := sample %in% fit_ids]
+  fit_flag <- rows$fitted                       # indexed by sample index
+  outside <- cl[fit_flag[i] & !fit_flag[j], .(o = sum(v)), by = i]
+  rows[outside, total_outside := i.o, on = "i"]
+  cl <- cl[fit_flag[i] & fit_flag[j]]
+  cat(sprintf("  %d of %d samples kept (%d IDs in %s skipped: not in %s)\n",
+              sum(fit_flag), nind, nskip, opt$fit_samples, opt$samples))
+}
+fit_idx <- rows[fitted == TRUE, i]
+nfit <- length(fit_idx)
+if (nfit == 0) fail("none of the samples in", opt$fit_samples, "are in", opt$samples)
+if (opt$nhcs >= nfit) fail(sprintf("--nhcs (%d) must be less than the number of samples fitted (%d)", opt$nhcs, nfit))
+
 used <- cl[, .(n_used = .N, total_used = sum(v)), by = i]
 rows[used, `:=`(n_entries_used = i.n_used, total_used = i.total_used), on = "i"]
 rows[is.na(n_entries_used), `:=`(n_entries_used = 0L, total_used = 0)]
@@ -123,12 +146,12 @@ if (opt$reweight) {
               rows[n_entries_used > 0, min(reweight_factor)], rows[n_entries_used > 0, max(reweight_factor)]))
 }
 
-nempty <- rows[n_entries_used == 0, .N]
+nempty <- rows[fitted == TRUE & n_entries_used == 0, .N]
 if (nempty > 0) cat(sprintf("  %d samples have no entries in the matrix; their HCs will be 0\n", nempty))
 
 # --- SVD ---
 cat("Making sparse matrix\n")
-A <- sparseMatrix(cl$i, cl$j, x = log10(cl$v + 1), dims = c(nind, nind))
+A <- sparseMatrix(match(cl$i, fit_idx), match(cl$j, fit_idx), x = log10(cl$v + 1), dims = c(nfit, nfit))
 rm(cl); invisible(gc())
 
 cat("Calculating SVD\n")
@@ -142,7 +165,7 @@ HCs <- res$u %*% diag(sqrt(res$d), nrow = length(res$d))
 colnames(HCs) <- paste0("HC", seq_len(ncol(HCs)))
 
 cat("Writing HCs\n")
-fwrite(data.table(sample = samples, HCs), opt$out, sep = ",")
+fwrite(data.table(sample = samples[fit_idx], HCs), opt$out, sep = ",")
 
 # --- diagnostics ---
 if (!is.na(opt$diagnostics)) {
@@ -151,9 +174,10 @@ if (!is.na(opt$diagnostics)) {
     frac_kept = total_kept / total_precap,      # share of the row's pre-cap total left after the cap
     largest_share = largest / total_kept,       # share of the row (after the cap) taken by its largest entry
     frac_removed = total_removed / total_kept,  # share of the row (after the cap) removed by --remove_pairs
-    status = "fitted"
+    frac_outside = fifelse(fitted, total_outside / total_kept, NA_real_),  # share of the row (after the cap) to samples not in --fit_samples
+    status = fifelse(fitted, "fitted", "not fitted")
   )]
   fwrite(rows[, .(sample, n_entries, total_precap, total_kept, frac_kept, largest_share,
-                  frac_removed, n_entries_used, reweight_factor, status)],
+                  frac_removed, frac_outside, n_entries_used, reweight_factor, status)],
          opt$diagnostics, sep = "\t", na = "NA", quote = FALSE)
 }

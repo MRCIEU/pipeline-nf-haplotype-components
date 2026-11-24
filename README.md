@@ -18,7 +18,7 @@ Across chromosomes:
 
 4. **`generate_chunk_length_matrix`** — combines the per-chromosome chunklengths files, weighted by SNP counts and genetic map lengths, into a single genome-wide sparse chunk-length matrix (`combine`, a Rust CLI tool). If the matrix has more than `--restrict` entries, the smallest are dropped. `combine` also writes each row's sum, calculated before any entries are dropped.
 
-5. **`compute_HCs`** — Optionally removes the entries of listed sample pairs, e.g. relatives (`--remove_pairs`), and rescales each row of the matrix back to its sum before entries were removed (`--reweight`). Then it computes a truncated SVD from the sparse matrix, and writes the resulting haplotype components and per-sample diagnostics (`calculate_haplotype_components`, an R script using `sparsesvd`).
+5. **`compute_HCs`** — Optionally removes the entries of listed sample pairs, e.g. relatives (`--remove_pairs`), keeps only some samples' rows and columns (`--fit_samples`), and rescales each row of the matrix back to its sum before entries were removed (`--reweight`). Then it computes a truncated SVD from the sparse matrix, and writes the resulting haplotype components and per-sample diagnostics (`calculate_haplotype_components`, an R script using `sparsesvd`).
 
 ```mermaid
 flowchart TD
@@ -58,6 +58,7 @@ Each process runs in its own Docker container (see [Dependencies](#dependencies)
 | `--restrict`      | No       | `2147483647` | Maximum number of entries in the combined chunk-length matrix (`combine --restrict`); the smallest values are dropped first. The default, 2^31−1, is the most R's Matrix package can hold. |
 | `--reweight`      | No       | `false`      | Before computing HCs, rescale each row of the matrix so it adds up to its total before `--restrict` and `--remove_pairs` removed entries (from `combine`'s `.sums` file). Has no effect if no entries were removed. |
 | `--remove_pairs`  | No       | *(none)*     | Path to a file of sample-ID pairs (e.g. relatives, such as parent–offspring and sibling pairs) whose entries are removed from the matrix, in both directions, before computing HCs. The first two whitespace-separated columns are used; other columns are ignored. Pairs with an ID not in the data (or a header line) are skipped. Use with `--reweight`: on its own, removing a relative's entry leaves the rest of the row small, which shrinks that sample's HCs towards 0. |
+| `--fit_samples`   | No       | *(none)*     | Path to a file of sample IDs, one per line. Only these samples' rows and columns of the matrix are used for the SVD (their entries to other samples are removed), and only they get HCs, in the order of the input files. E.g. HCs within one group, from a painting of everyone (unlike `--keep_samples`, which paints only the listed samples). IDs not in the data are skipped. Use with `--reweight`. |
 
 ## Usage
 
@@ -71,8 +72,8 @@ nextflow run main.nf \
 
 The pipeline publishes two files to `<resultsdir>`:
 
-- **`<outfile>`** (default `HCs.csv`): the haplotype components. A CSV file with one row per individual, in the same order as the samples in the input BCF/VCFs (`pbwt` combines both of an individual's haplotypes into one row), and columns `sample, HC1, HC2, ..., HC<nHCs>`.
-- **`<diagnostics>`** (default `HC_diagnostics.tsv`): per-sample diagnostics, tab-separated, one row per individual in the same order:
+- **`<outfile>`** (default `HCs.csv`): the haplotype components. A CSV file with one row per individual (per individual in `--fit_samples`, if given), in the same order as the samples in the input BCF/VCFs (`pbwt` combines both of an individual's haplotypes into one row), and columns `sample, HC1, HC2, ..., HC<nHCs>`.
+- **`<diagnostics>`** (default `HC_diagnostics.tsv`): per-sample diagnostics, tab-separated, one row per individual in the input files (including any not in `--fit_samples`), in the same order:
 
 | Column            | Description |
 |-------------------|-------------|
@@ -83,9 +84,10 @@ The pipeline publishes two files to `<resultsdir>`:
 | `frac_kept`       | `total_kept / total_precap`: the share of the row left after `--restrict`. |
 | `largest_share`   | Share of the row taken by its largest entry. In 1000G the median is about 0.02 for samples without close relatives in the data and about 0.75 for parent–child trio members, so high values usually mean a close relative is in the dataset. |
 | `frac_removed`    | Share of the row (after `--restrict`) removed by `--remove_pairs`. |
+| `frac_outside`    | Share of the row (after `--restrict`) to samples not in `--fit_samples` (0 without it; NA for samples not fitted). |
 | `n_entries_used`  | Number of entries in the row used for the HCs, after `--remove_pairs`. |
 | `reweight_factor` | Factor the row was scaled by with `--reweight` (1 otherwise). Large values mean the row's HCs rest on a small part of its original total. |
-| `status`          | `fitted`: the individual's row was used in the SVD. |
+| `status`          | `fitted`: the individual's row was used in the SVD; `not fitted`: not in `--fit_samples` (no HCs). |
 
 With `--publish_matrix`, `<resultsdir>/matrix` also contains the combined chunk-length matrix (`combined.chunklengths.txt.gz`: `index1 index2 value`, space-separated, 1-based indices into `samples.txt`), its row sums before `--restrict` (`combined.chunklengths.sums`: `index1 sum`), and `samples.txt`.
 

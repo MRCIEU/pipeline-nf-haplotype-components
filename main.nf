@@ -18,6 +18,10 @@ params.reweight = false
 // optional: a file of sample ID pairs (e.g. relatives; first two whitespace-separated columns) whose entries are
 // removed from the matrix before computing HCs. Use with --reweight
 params.remove_pairs = ""
+// optional: a file of sample IDs (one per line). Only these samples' rows and columns of the matrix are used for the
+// SVD (their entries to other samples are removed) and only they get HCs, e.g. HCs within one group from a painting of
+// everyone. Use with --reweight
+params.fit_samples = ""
 
 // optional: a file of sample IDs (one per line) to keep. The input files are subset to these samples before
 // painting, so only these samples are painted (against each other). Output rows follow the order of this file
@@ -117,7 +121,9 @@ workflow {
         combine(c_samples_file) |\
         map { matrix, sums, samples -> [matrix, sums, samples, params.nHCs, params.outfile, params.diagnostics, params.reweight.toString().toBoolean(),
                                       params.remove_pairs as boolean,
-                                      params.remove_pairs ? file(params.remove_pairs, checkIfExists: true) : file("${projectDir}/assets/NO_FILE")] } |\
+                                      params.remove_pairs ? file(params.remove_pairs, checkIfExists: true) : file("${projectDir}/assets/NO_FILE"),
+                                      params.fit_samples as boolean,
+                                      params.fit_samples ? file(params.fit_samples, checkIfExists: true) : file("${projectDir}/assets/NO_FILE")] } |\
         compute_HCs
 }
 
@@ -222,7 +228,7 @@ process compute_HCs {
     publishDir params.resultsdir, mode: 'copy'
 
     input:
-    tuple path(chunks), path(sums), path(samples), val(nHCs), val(outfile), val(diagnostics), val(reweight), val(use_pairs), path(remove_pairs, stageAs: 'pairs/*')
+    tuple path(chunks), path(sums), path(samples), val(nHCs), val(outfile), val(diagnostics), val(reweight), val(use_pairs), path(remove_pairs, stageAs: 'pairs/*'), val(use_fit), path(fit_samples, stageAs: 'fit/*')
 
     output:
     tuple path(outfile), path(diagnostics)
@@ -237,6 +243,7 @@ process compute_HCs {
         --out ${outfile} \\
         --diagnostics ${diagnostics} \\
         ${reweight ? '--reweight' : ''} \\
-        ${use_pairs ? "--remove_pairs ${remove_pairs}" : ''}
+        ${use_pairs ? "--remove_pairs ${remove_pairs}" : ''} \\
+        ${use_fit ? "--fit_samples ${fit_samples}" : ''}
     """
 }
