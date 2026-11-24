@@ -16,6 +16,10 @@ params.restrict = 2147483647
 // rescale each row of the matrix to its sum before --restrict dropped entries, before computing HCs
 params.reweight = false
 
+// optional: a file of sample IDs (one per line) to keep. The input files are subset to these samples before
+// painting, so only these samples are painted (against each other). Output rows follow the order of this file
+params.keep_samples = ""
+
 params.outfile = "HCs.csv"
 params.diagnostics = "HC_diagnostics.tsv"
 params.resultsdir = "results"
@@ -26,7 +30,7 @@ workflow {
     // parsed from a plain text file with one line per chromosome, each line containing the chromosome index and the path to the bcf file for that chromosome
     // with columns separated by whitespace. Relative paths are resolved against the directory containing vcf_file_list
     def vcf_file_list = file(params.vcf_file_list)
-    c_vcf = channel.from(
+    c_vcf_input = channel.from(
         vcf_file_list
             .readLines()
         ) |\
@@ -36,9 +40,18 @@ workflow {
                     throw new Exception("Each line in the vcf_file_list must contain exactly two fields: chromosome number and path to vcf/bcf file.")
                 }
                 return [String.format('%02d', Integer.parseInt(fields[0])), file(vcf_file_list.parent.resolve(fields[1]).toString())]
-            
+
         }
-    
+
+    // optionally subset every input file to the samples in keep_samples, before anything else
+    if (params.keep_samples) {
+        c_vcf = c_vcf_input |\
+            combine(channel.value(file(params.keep_samples, checkIfExists: true))) |\
+            subset_samples
+    } else {
+        c_vcf = c_vcf_input
+    }
+
     // a (channel of a) plain text file of the sample IDs, one per line, in the order of the input files.
     // check_samples fails if the input files don't all have the same samples in the same order, because
     // the chunk length matrix refers to samples by their position in this list
@@ -112,6 +125,23 @@ process count_snps {
     script:
     """
     bcftools view -H ${bcf} | wc -l > chr${chr}_nsnps.txt
+    """
+}
+
+process subset_samples {
+    // publishDir "${params.resultsdir}/intermediate", mode: 'copy'
+
+    input:
+    tuple val(chr), path(bcf), path(keep)
+
+    output:
+    tuple val(chr), path("chr${chr}.subset.bcf")
+
+    script:
+    // bcftools fails if a sample in the keep file is not in the input file, and outputs the samples in
+    // the order of the keep file. Sites that become monomorphic are kept
+    """
+    bcftools view -S ${keep} -Ob -o chr${chr}.subset.bcf ${bcf}
     """
 }
 

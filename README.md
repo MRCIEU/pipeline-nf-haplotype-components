@@ -6,6 +6,8 @@ A [Nextflow](https://www.nextflow.io/) (DSL2) pipeline for computing haplotype c
 
 For each chromosome (in parallel):
 
+0. **`subset_samples`** (only with `--keep_samples`) — subsets the input BCF/VCF to the listed samples, in the order of the list (`bcftools view -S`). Only these samples are painted, against each other. Sites that become monomorphic are kept.
+
 1. **`count_snps`** — counts the number of SNPs in the input BCF/VCF (`bcftools`).
 
 2. **`paint`** — performs PBWT sparse chromosome painting, producing a chunklengths file per chromosome (`pbwt -paintSparse`).
@@ -44,6 +46,7 @@ Each process runs in its own Docker container (see [Dependencies](#dependencies)
 |-------------------|----------|--------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--vcf_file_list` | Yes      | *(none)*     | Path to a plain text file with one line per chromosome: `<chromosome index> <path to BCF/VCF file>`, whitespace-separated. Relative paths are resolved against the directory containing this file. |
 | `--map_file`      | Yes      | *(none)*     | Path to a plain text file with one line per chromosome giving the genetic map length, in the same order as `vcf_file_list`.                                          |
+| `--keep_samples`  | No       | *(none)*     | Path to a file of sample IDs, one per line. The input files are subset to these samples before painting, so only they are painted (e.g. to exclude relatives, as in Yang et al. 2025, or to paint one group on its own). Every ID must be in the input files. Output rows follow the order of this file. |
 | `--nHCs`          | No       | `150`        | Number of haplotype components to compute.                                                                                                                          |
 | `--outfile`       | No       | `HCs.csv`    | Name of the output file containing the computed haplotype components.                                                                                               |
 | `--diagnostics`   | No       | `HC_diagnostics.tsv` | Name of the output file of per-sample diagnostics.                                                                                                          |
