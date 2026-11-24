@@ -68,7 +68,7 @@ Each pipeline process runs in a dedicated Docker image, built from the [dependen
 |-----------------------------------------------------|---------------------------------------------------------------------|
 | [dependencies/bcftools](dependencies/bcftools)      | [`bcftools`](https://samtools.github.io/bcftools/) 1.24             |
 | [dependencies/pbwt](dependencies/pbwt)              | [`pbwt`](https://github.com/richarddurbin/pbwt) v2.1                |
-| [dependencies/combine](dependencies/combine)        | `combine` — a Rust CLI tool that merges per-chromosome chunklengths files into a single sparse genome-wide matrix |
+| [dependencies/combine](dependencies/combine)        | [`combine`](https://github.com/MRCIEU/combine-pbwt-sparsepaint) v0.6.0 — a Rust CLI tool that merges per-chromosome chunklengths files into a single sparse genome-wide matrix |
 | [dependencies/calculate_HCs](dependencies/calculate_HCs) | `calculate_haplotype_components` — an R script computing sparse SVD-based haplotype components |
 
 Each directory contains a `Dockerfile` and a `build.sh` script to build and tag the corresponding image. Tags are given for example purposes. They must correspond to the names in `nextflow.config`

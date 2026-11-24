@@ -81,7 +81,7 @@ workflow {
         } |\
         generate_chunk_length_matrix |\
         combine(c_nindividuals_val) |\
-        map { file, _rowsums, nind -> [file, nind, params.nHCs, params.outfile] } |\
+        map { file, _sums, nind -> [file, nind, params.nHCs, params.outfile] } |\
         compute_HCs
 }
 
@@ -145,7 +145,7 @@ process generate_chunk_length_matrix {
     tuple path(chunk_files), path(chunk_filenames_list), path(snp_counts_list), path(map_lengths_list)
 
     output:
-    tuple path("combined.chunklengths.txt.gz"), path("combined.chunklengths.rowsums")
+    tuple path("combined.chunklengths.txt.gz"), path("combined.chunklengths.sums")
 
     script:
     """
