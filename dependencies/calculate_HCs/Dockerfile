@@ -5,6 +5,7 @@ RUN Rscript -e 'install.packages( \
             "data.table", \
             "Matrix", \
             "sparsesvd", \
+            "optparse", \
             "R.utils" \
         ), \
         repos="https://www.stats.bris.ac.uk/R/")'

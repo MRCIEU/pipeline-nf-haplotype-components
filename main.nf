@@ -17,6 +17,7 @@ params.restrict = 2147483647
 params.reweight = false
 
 params.outfile = "HCs.csv"
+params.diagnostics = "HC_diagnostics.tsv"
 params.resultsdir = "results"
 
 workflow {
@@ -38,12 +39,13 @@ workflow {
             
         }
     
-    // a (channel of a) plain text file with one line containing the number of individuals in the dataset
-    c_nindividuals_val = c_vcf |\
-            map { _i, bcf -> bcf } |\
-            collect |\
-            count_individuals |\
-            map { file -> file.text.trim() }
+    // a (channel of a) plain text file of the sample IDs, one per line, in the order of the input files.
+    // check_samples fails if the input files don't all have the same samples in the same order, because
+    // the chunk length matrix refers to samples by their position in this list
+    c_samples_file = c_vcf |\
+            toSortedList {a, b -> a[0] <=> b[0]} |\
+            map { l -> l.collect { _chr, bcf -> bcf } } |\
+            check_samples
 
     // a (channel of a) plain text file with one line per chromosome, each line containing the number of SNPs in that vcf, in the same order as the input vcf_file_listx
     c_nsnps_file = c_vcf |\
@@ -75,7 +77,7 @@ workflow {
     //      2) a list of the number of SNPs in each chromosome in a plain text file
     //      3) a list of the genetic map lengths for each chromosome in a plain text file
     // then we combine the chunklengths files into a single matrix using combine (called by generate_chunk_length_matrix), 
-    // add the number of individuals in the dataset in order to make the sparse matrix with the correct dimensions, 
+    // add the sample IDs (which give the dimensions of the sparse matrix, and label the output),
     // and finally compute the haplotype components.
     c_chunkfiles |\
         collect |\
@@ -93,8 +95,8 @@ workflow {
             ]
         } |\
         generate_chunk_length_matrix |\
-        combine(c_nindividuals_val) |\
-        map { file, sums, nind -> [file, sums, nind, params.nHCs, params.outfile, params.reweight.toString().toBoolean()] } |\
+        combine(c_samples_file) |\
+        map { file, sums, samples -> [file, sums, samples, params.nHCs, params.outfile, params.diagnostics, params.reweight.toString().toBoolean()] } |\
         compute_HCs
 }
 
@@ -113,26 +115,38 @@ process count_snps {
     """
 }
 
-process count_individuals {
+process check_samples {
     // publishDir "${params.resultsdir}/intermediate", mode: 'copy'
 
     input:
-    path(bcf)
+    path(bcfs)
 
     output:
-    path("nind.txt")
+    path("samples.txt")
 
     script:
     """
-    for FILE in *bcf
+    first=""
+    for FILE in ${bcfs}
     do
-        bcftools query -l \${FILE} | wc -l >> ninds.txt
+        bcftools query -l "\${FILE}" > "\${FILE}.samples"
+        if [ -z "\${first}" ]; then
+            first="\${FILE}"
+        elif ! cmp -s "\${first}.samples" "\${FILE}.samples"; then
+            echo "Error: \${FILE} does not have the same samples, in the same order, as \${first}." >&2
+            exit 1
+        fi
     done
-    sort ninds.txt | uniq > nind.txt
-    if [ \$(wc -l < nind.txt) -gt 1 ]; then
-        echo "Error: More than one unique number of individuals found."
+    if [ ! -s "\${first}.samples" ]; then
+        echo "Error: no samples found in \${first}." >&2
         exit 1
     fi
+    dups=\$(sort "\${first}.samples" | uniq -d | head -5)
+    if [ -n "\${dups}" ]; then
+        echo "Error: duplicate sample IDs in the input files, e.g.: \${dups}" >&2
+        exit 1
+    fi
+    cp "\${first}.samples" samples.txt
     """
 }
 
@@ -170,13 +184,20 @@ process compute_HCs {
     publishDir params.resultsdir, mode: 'copy'
 
     input:
-    tuple path(chunks), path(sums), val(nind), val(nHCs), val(outfile), val(reweight)
+    tuple path(chunks), path(sums), path(samples), val(nHCs), val(outfile), val(diagnostics), val(reweight)
 
     output:
-    path(outfile)
+    tuple path(outfile), path(diagnostics)
 
     script:
     """
-    calculate_haplotype_components ${chunks} ${nind} ${nHCs} ${outfile} ${reweight ? sums : ''}
+    calculate_haplotype_components \\
+        --matrix ${chunks} \\
+        --samples ${samples} \\
+        --sums ${sums} \\
+        --nhcs ${nHCs} \\
+        --out ${outfile} \\
+        --diagnostics ${diagnostics} \\
+        ${reweight ? '--reweight' : ''}
     """
 }

@@ -12,17 +12,17 @@ For each chromosome (in parallel):
 
 Across chromosomes:
 
-3. **`count_individuals`** — determines the (single, shared) number of individuals across all input files (`bcftools`).
+3. **`check_samples`** — checks that all input files have the same samples in the same order, and writes the list of sample IDs (`bcftools`). The chunk-length matrix refers to samples by their position in this list.
 
 4. **`generate_chunk_length_matrix`** — combines the per-chromosome chunklengths files, weighted by SNP counts and genetic map lengths, into a single genome-wide sparse chunk-length matrix (`combine`, a Rust CLI tool). If the matrix has more than `--restrict` entries, the smallest are dropped. `combine` also writes each row's sum, calculated before any entries are dropped.
 
-5. **`compute_HCs`** — Optionally (`--reweight`) rescales each row of the matrix back to its sum before entries were dropped. Then it computes a truncated SVD from the sparse matrix, and writes the resulting haplotype components (`calculate_haplotype_components`, an R script using `sparsesvd`).
+5. **`compute_HCs`** — Optionally (`--reweight`) rescales each row of the matrix back to its sum before entries were dropped. Then it computes a truncated SVD from the sparse matrix, and writes the resulting haplotype components and per-sample diagnostics (`calculate_haplotype_components`, an R script using `sparsesvd`).
 
 ```mermaid
 flowchart TD
     A[vcf_file_list] --> B(count_snps)
     A --> C(paint)
-    A --> D(count_individuals)
+    A --> D(check_samples)
     B --> E(generate_chunk_length_matrix)
     C --> E
     G[map_file] --> E
@@ -46,6 +46,7 @@ Each process runs in its own Docker container (see [Dependencies](#dependencies)
 | `--map_file`      | Yes      | *(none)*     | Path to a plain text file with one line per chromosome giving the genetic map length, in the same order as `vcf_file_list`.                                          |
 | `--nHCs`          | No       | `150`        | Number of haplotype components to compute.                                                                                                                          |
 | `--outfile`       | No       | `HCs.csv`    | Name of the output file containing the computed haplotype components.                                                                                               |
+| `--diagnostics`   | No       | `HC_diagnostics.tsv` | Name of the output file of per-sample diagnostics.                                                                                                          |
 | `--resultsdir`    | No       | `results`    | Directory that final results are published to.                                                                                                                      |
 | `--paint_nchunks` | No       | `100`        | `pbwt -paintSparse`: number of chunks per region.                                                                                                                    |
 | `--paint_ploidy`  | No       | `2`          | `pbwt -paintSparse`: ploidy.                                                                                                                                         |
@@ -63,7 +64,21 @@ nextflow run main.nf \
 
 ## Output
 
-The pipeline publishes the computed haplotype components to `<resultsdir>/<outfile>` (by default `results/HCs.csv`): a CSV file with one row per individual (in the same order as the samples in the input BCF/VCFs; `pbwt` combines both of an individual's haplotypes into one row) and columns `HC1, HC2, ..., HC<nHCs>`.
+The pipeline publishes two files to `<resultsdir>`:
+
+- **`<outfile>`** (default `HCs.csv`): the haplotype components. A CSV file with one row per individual, in the same order as the samples in the input BCF/VCFs (`pbwt` combines both of an individual's haplotypes into one row), and columns `sample, HC1, HC2, ..., HC<nHCs>`.
+- **`<diagnostics>`** (default `HC_diagnostics.tsv`): per-sample diagnostics, tab-separated, one row per individual in the same order:
+
+| Column            | Description |
+|-------------------|-------------|
+| `sample`          | Sample ID. |
+| `n_entries`       | Number of entries in the individual's row of the chunk-length matrix (after `--restrict`). |
+| `total_precap`    | Total of the row before `--restrict` dropped entries (from `combine`'s `.sums` file), in cM. About 2 × the total map length, lower if the individual had no matches on some chromosomes. |
+| `total_kept`      | Total of the row after `--restrict`, before any reweighting, in cM. |
+| `frac_kept`       | `total_kept / total_precap`: the share of the row left after `--restrict`. |
+| `largest_share`   | Share of the row taken by its largest entry. In 1000G the median is about 0.02 for samples without close relatives in the data and about 0.75 for parent–child trio members, so high values usually mean a close relative is in the dataset. |
+| `reweight_factor` | Factor the row was scaled by with `--reweight` (1 otherwise). |
+| `status`          | `fitted`: the individual's row was used in the SVD. |
 
 ## Testing
 

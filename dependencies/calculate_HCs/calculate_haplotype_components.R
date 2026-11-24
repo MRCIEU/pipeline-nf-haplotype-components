@@ -1,73 +1,129 @@
 #!/usr/bin/env Rscript
 
-USAGESTRING <- paste0(
-  "calculate_haplotype_components <input file> <sample size (number of individuals)> <no. haplotype components required out> <output file> [row sums file]\n",
-  "\n",
-  "  If a row sums file (combine's <prefix>.sums: \"index1 sum\", one line per row) is given, each row's\n",
-  "  values are rescaled to add up to that row's sum before the SVD. The sums are calculated before\n",
-  "  combine --restrict drops entries, so this restores each row's total after restricting.\n"
+# Computes haplotype components (HCs) from the combined chunk length matrix written by combine.
+#
+# The matrix (combine's <prefix>.txt.gz) has three columns, "index1 index2 value", where the indices
+# are 1-based positions in the samples file (the sample order of the BCF/VCFs that were painted).
+# HCs are the top --nhcs columns of U * sqrt(D), from the SVD of log10(matrix + 1).
+
+suppressPackageStartupMessages({
+  library(optparse)
+})
+
+option_list <- list(
+  make_option("--matrix", type = "character",
+              help = "combined chunk length matrix from combine (<prefix>.txt.gz) [required]"),
+  make_option("--samples", type = "character",
+              help = "sample IDs, one per line, in the order of the painted BCF/VCFs [required]"),
+  make_option("--nhcs", type = "integer",
+              help = "number of HCs to compute [required]"),
+  make_option("--out", type = "character",
+              help = "output file for the HCs (CSV: sample, HC1, HC2, ...) [required]"),
+  make_option("--sums", type = "character", default = NA,
+              help = paste("combine's row sums file (<prefix>.sums: \"index1 sum\"), calculated before",
+                           "combine --restrict dropped entries. Needed for --reweight; also used in the diagnostics")),
+  make_option("--reweight", action = "store_true", default = FALSE,
+              help = "rescale each row's values to add up to its sum in --sums before the SVD"),
+  make_option("--diagnostics", type = "character", default = NA,
+              help = "optional output file for per-sample diagnostics (tab-separated)")
 )
+parser <- OptionParser(
+  usage = "calculate_haplotype_components --matrix FILE --samples FILE --nhcs N --out FILE [options]",
+  option_list = option_list
+)
+opt <- parse_args(parser)
 
-args <- commandArgs(trailingOnly = TRUE)
-
-for(argument in args) {
-  if(argument == "-h" || argument == "--help") {
-    cat(USAGESTRING)
-    quit(save = "no", status = 0)
-  }
-}
-
-if(!(length(args) %in% c(4, 5))) {
-  cat("Error: Wrong number of arguments provided.\n")
-  cat(USAGESTRING)
+fail <- function(...) {
+  cat("Error:", ..., "\n", file = stderr())
   quit(save = "no", status = 1)
 }
 
-
-infile <- args[1]
-nind <- as.numeric(args[2])
-nHCs <- as.numeric(args[3])
-outfile <- args[4]
-sumsfile <- if(length(args) == 5) args[5] else NA
-
-
-library(data.table)
-library(Matrix)
-library(sparsesvd)
-
-
-cat("Reading data\n")
-cl <- fread(infile)
-
-if(!is.na(sumsfile)) {
-  cat("Reweighting rows to their pre-restrict sums\n")
-  sums <- fread(sumsfile, col.names = c("index1", "sum"))
-  kept <- cl[, .(kept = sum(V3)), by = V1]
-  target <- sums$sum[match(kept$V1, sums$index1)]
-  if(anyNA(target)) {
-    cat("Error: rows in", infile, "are missing from", sumsfile, "\n")
-    quit(save = "no", status = 1)
-  }
-  # every row in cl has at least one entry > 0, so kept > 0
-  kept[, factor := target / kept]
-  cl[kept, V3 := V3 * i.factor, on = "V1"]
-  cat(sprintf("  %d rows; scale factors range from %.6f to %.6f\n",
-              nrow(kept), min(kept$factor), max(kept$factor)))
-  nempty <- sum(!(sums$index1 %in% kept$V1) & sums$sum > 0)
-  if(nempty > 0) {
-    cat(sprintf("  %d rows had all their entries dropped, and stay empty\n", nempty))
+for (required in c("matrix", "samples", "nhcs", "out")) {
+  if (is.null(opt[[required]])) {
+    print_help(parser)
+    fail(sprintf("--%s is required", required))
   }
 }
+if (opt$reweight && is.na(opt$sums)) fail("--reweight needs --sums")
 
+suppressPackageStartupMessages({
+  library(data.table)
+  library(Matrix)
+  library(sparsesvd)
+})
+
+# --- inputs ---
+cat("Reading samples\n")
+samples <- readLines(opt$samples)
+samples <- samples[nzchar(samples)]
+nind <- length(samples)
+if (nind == 0) fail("no samples in", opt$samples)
+if (anyDuplicated(samples)) fail("duplicate sample IDs in", opt$samples)
+if (opt$nhcs >= nind) fail(sprintf("--nhcs (%d) must be less than the number of samples (%d)", opt$nhcs, nind))
+cat(sprintf("  %d samples\n", nind))
+
+cat("Reading matrix\n")
+cl <- fread(opt$matrix, header = FALSE, col.names = c("i", "j", "v"))
+cat(sprintf("  %d entries\n", nrow(cl)))
+if (nrow(cl) > 0 && max(cl$i, cl$j) > nind) {
+  fail(sprintf("the matrix has sample index %d, but there are only %d samples in %s",
+               max(cl$i, cl$j), nind, opt$samples))
+}
+
+# per-row totals before the cap (from combine), and of the entries that are left
+rows <- data.table(i = seq_len(nind), sample = samples)
+if (!is.na(opt$sums)) {
+  sums <- fread(opt$sums, header = FALSE, col.names = c("i", "total_precap"))
+  if (nrow(sums) > 0 && max(sums$i) > nind) fail("the sums file has rows that are not in", opt$samples)
+  rows[sums, total_precap := i.total_precap, on = "i"]
+} else {
+  rows[, total_precap := NA_real_]
+}
+kept <- cl[, .(n_entries = .N, total_kept = sum(v), largest = max(v)), by = i]
+rows[kept, `:=`(n_entries = i.n_entries, total_kept = i.total_kept, largest = i.largest), on = "i"]
+rows[is.na(n_entries), `:=`(n_entries = 0L, total_kept = 0, largest = NA_real_)]
+
+# --- reweighting ---
+rows[, reweight_factor := 1]
+if (opt$reweight) {
+  cat("Reweighting rows to their sums before the cap\n")
+  if (rows[n_entries > 0, anyNA(total_precap)]) fail("rows in the matrix are missing from", opt$sums)
+  # every row with entries has values > 0, so total_kept > 0
+  rows[n_entries > 0, reweight_factor := total_precap / total_kept]
+  cl[rows, v := v * i.reweight_factor, on = "i"]
+  cat(sprintf("  scale factors range from %.6f to %.6f\n",
+              rows[n_entries > 0, min(reweight_factor)], rows[n_entries > 0, max(reweight_factor)]))
+}
+
+nempty <- rows[n_entries == 0, .N]
+if (nempty > 0) cat(sprintf("  %d samples have no entries in the matrix; their HCs will be 0\n", nempty))
+
+# --- SVD ---
 cat("Making sparse matrix\n")
-A <- sparseMatrix(cl$V1, cl$V2, x = log10(cl$V3 + 1), dims = c(nind, nind))
+A <- sparseMatrix(cl$i, cl$j, x = log10(cl$v + 1), dims = c(nind, nind))
+rm(cl); invisible(gc())
 
-cat("Calculating SVD \n")
-res <- sparsesvd(A, rank = nHCs)
+cat("Calculating SVD\n")
+res <- sparsesvd(A, rank = opt$nhcs)
+if (length(res$d) < opt$nhcs) {
+  cat(sprintf("  Warning: only %d non-zero singular values; writing %d HCs\n", length(res$d), length(res$d)))
+}
 
 cat("Calculating HCs\n")
-HCs <- res$u %*% diag(sqrt(res$d))
+HCs <- res$u %*% diag(sqrt(res$d), nrow = length(res$d))
+colnames(HCs) <- paste0("HC", seq_len(ncol(HCs)))
 
 cat("Writing HCs\n")
-colnames(HCs) <- paste0("HC", 1:ncol(HCs))
-fwrite(HCs, outfile, row.names = FALSE, sep = ",")
+fwrite(data.table(sample = samples, HCs), opt$out, sep = ",")
+
+# --- diagnostics ---
+if (!is.na(opt$diagnostics)) {
+  cat("Writing diagnostics\n")
+  rows[, `:=`(
+    frac_kept = total_kept / total_precap,      # share of the row's pre-cap total left after the cap
+    largest_share = largest / total_kept,       # share of the row taken by its largest entry
+    status = "fitted"
+  )]
+  fwrite(rows[, .(sample, n_entries, total_precap, total_kept, frac_kept, largest_share, reweight_factor, status)],
+         opt$diagnostics, sep = "\t", na = "NA", quote = FALSE)
+}

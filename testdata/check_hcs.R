@@ -3,9 +3,9 @@
 #
 # Usage: Rscript testdata/check_hcs.R <HCs.csv> [nHCs (default 10)] [plot.png]
 #
-# Checks: one row per sample in testdata/samples.txt, nHCs columns, all values finite, and
-# that the leading HCs separate the 1000G superpopulations (rows are in BCF sample order,
-# the same as samples_superpop.txt). Exits non-zero if a check fails.
+# Checks: a 'sample' column with the test samples in BCF order (as in samples_superpop.txt),
+# nHCs HC columns, all values finite, and that the leading HCs separate the 1000G
+# superpopulations. Exits non-zero if a check fails.
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 1) stop("usage: check_hcs.R <HCs.csv> [nHCs] [plot.png]")
@@ -20,10 +20,16 @@ testdata_dir <- local({
 
 pops <- read.table(file.path(testdata_dir, "samples_superpop.txt"),
                    col.names = c("sample", "superpop"), stringsAsFactors = FALSE)
-hcs <- as.matrix(read.csv(hcs_file))
+raw <- read.csv(hcs_file, stringsAsFactors = FALSE)
 
 fail <- function(...) { cat("FAIL:", ..., "\n"); quit(save = "no", status = 1) }
 ok <- function(...) cat("ok:", ..., "\n")
+
+# --- sample IDs ---
+if (colnames(raw)[1] != "sample") fail("first column should be 'sample', got", colnames(raw)[1])
+if (!identical(raw$sample, pops$sample)) fail("sample IDs are not the test samples, in BCF order")
+ok("sample IDs match the test samples, in BCF order")
+hcs <- as.matrix(raw[, -1])
 
 # --- shape and values ---
 if (nrow(hcs) != nrow(pops)) fail("expected", nrow(pops), "rows (samples), got", nrow(hcs))
