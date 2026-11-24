@@ -101,6 +101,10 @@ Because the test data is thinned and has few samples, the `test` profile lowers 
 
 [testdata/make_testdata.sh](testdata/make_testdata.sh) rebuilds the test data from the full 1000G BCFs (already subset to HapMap 3 SNPs), choosing the samples with [testdata/select_samples.sh](testdata/select_samples.sh).
 
+### HC-step test data
+
+[testdata/hc](testdata/hc) has test data for the HC step on its own (`calculate_haplotype_components`), without painting: a combined chunk-length matrix (`combined.chunklengths.txt.gz`), its row sums (`combined.chunklengths.sums`), `samples.txt`, `samples_superpop.txt` and `related_pairs.txt` (~1.8 MB). Unlike the thinned BCFs, it is painted at full HapMap 3 density with the production settings (`-paintSparse 100 2 500`), so it has realistic sparsity and structure, both between and within superpopulations. It has 904 samples: 750 unrelated (150 per superpopulation), 50 parent–child trios and 2 sibling pairs (102 related pairs). [testdata/make_hc_testdata.sh](testdata/make_hc_testdata.sh) rebuilds it by running the pipeline on the full 1000G BCFs with `--keep_samples` and `--publish_matrix`.
+
 ## Dependencies
 
 Each pipeline process runs in a dedicated Docker image, built from the [dependencies](dependencies) directory:
