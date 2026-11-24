@@ -14,9 +14,9 @@ Across chromosomes:
 
 3. **`count_individuals`** — determines the (single, shared) number of individuals across all input files (`bcftools`).
 
-4. **`generate_chunk_length_matrix`** — combines the per-chromosome chunklengths files, weighted by SNP counts and genetic map lengths, into a single genome-wide sparse chunk-length matrix (`combine`, a Rust CLI tool).
+4. **`generate_chunk_length_matrix`** — combines the per-chromosome chunklengths files, weighted by SNP counts and genetic map lengths, into a single genome-wide sparse chunk-length matrix (`combine`, a Rust CLI tool). If the matrix has more than `--restrict` entries, the smallest are dropped. `combine` also writes each row's sum, calculated before any entries are dropped.
 
-5. **`compute_HCs`** — Computes a truncated SVD from the sparse matrix, and writes the resulting haplotype components (`calculate_haplotype_components`, an R script using `sparsesvd`).
+5. **`compute_HCs`** — Optionally (`--reweight`) rescales each row of the matrix back to its sum before entries were dropped. Then it computes a truncated SVD from the sparse matrix, and writes the resulting haplotype components (`calculate_haplotype_components`, an R script using `sparsesvd`).
 
 ```mermaid
 flowchart TD
@@ -50,6 +50,8 @@ Each process runs in its own Docker container (see [Dependencies](#dependencies)
 | `--paint_nchunks` | No       | `100`        | `pbwt -paintSparse`: number of chunks per region.                                                                                                                    |
 | `--paint_ploidy`  | No       | `2`          | `pbwt -paintSparse`: ploidy.                                                                                                                                         |
 | `--paint_cutoff`  | No       | `500`        | `pbwt -paintSparse`: minimum length (in SNPs) of a haplotype match for it to be counted.                                                                            |
+| `--restrict`      | No       | `2147483647` | Maximum number of entries in the combined chunk-length matrix (`combine --restrict`); the smallest values are dropped first. The default, 2^31−1, is the most R's Matrix package can hold. |
+| `--reweight`      | No       | `false`      | Before computing HCs, rescale each row of the matrix so it adds up to its total before `--restrict` dropped entries (from `combine`'s `.sums` file). Has no effect if no entries were dropped. |
 
 ## Usage
 

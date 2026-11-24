@@ -10,6 +10,12 @@ params.paint_nchunks = 100
 params.paint_ploidy = 2
 params.paint_cutoff = 500
 
+// combine --restrict: the maximum number of entries in the combined chunk length matrix (smallest values
+// are dropped first). The default, 2^31-1, is the most R's Matrix package can hold
+params.restrict = 2147483647
+// rescale each row of the matrix to its sum before --restrict dropped entries, before computing HCs
+params.reweight = false
+
 params.outfile = "HCs.csv"
 params.resultsdir = "results"
 
@@ -88,7 +94,7 @@ workflow {
         } |\
         generate_chunk_length_matrix |\
         combine(c_nindividuals_val) |\
-        map { file, _sums, nind -> [file, nind, params.nHCs, params.outfile] } |\
+        map { file, sums, nind -> [file, sums, nind, params.nHCs, params.outfile, params.reweight.toString().toBoolean()] } |\
         compute_HCs
 }
 
@@ -156,7 +162,7 @@ process generate_chunk_length_matrix {
 
     script:
     """
-    combine -c ${chunk_filenames_list} -s ${snp_counts_list} -m ${map_lengths_list} -r -o combined.chunklengths
+    combine -c ${chunk_filenames_list} -s ${snp_counts_list} -m ${map_lengths_list} -r=${params.restrict} -o combined.chunklengths
     """
 }
 
@@ -164,13 +170,13 @@ process compute_HCs {
     publishDir params.resultsdir, mode: 'copy'
 
     input:
-    tuple path(chunks), val(nind), val(nHCs), val(outfile)
+    tuple path(chunks), path(sums), val(nind), val(nHCs), val(outfile), val(reweight)
 
     output:
-    path("*")
+    path(outfile)
 
     script:
     """
-    calculate_haplotype_components ${chunks} ${nind} ${nHCs} ${outfile}
+    calculate_haplotype_components ${chunks} ${nind} ${nHCs} ${outfile} ${reweight ? sums : ''}
     """
 }
