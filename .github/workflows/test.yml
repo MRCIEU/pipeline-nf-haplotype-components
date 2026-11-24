@@ -107,3 +107,4 @@ jobs:
             tests/.tmp/**/*.log
             .nextflow.log*
           if-no-files-found: ignore
+          include-hidden-files: true

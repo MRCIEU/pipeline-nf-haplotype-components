@@ -27,8 +27,9 @@ check() {  # check <description> <command...>
 nf() {  # nf <name> <args...>: run the pipeline on the test profile; results in ${TMP}/<name>, log in ${TMP}/<name>.log
     local name=$1; shift
     nextflow run main.nf -profile test -resume -ansi-log false --resultsdir "${TMP}/${name}" "$@" > "${TMP}/${name}.log" 2>&1
+    echo $? > "${TMP}/${name}.status"
 }
-succeeded() { grep -q '^\[SUCCESS\]' "${TMP}/$1.log"; }
+succeeded() { [ "$(cat "${TMP}/$1.status")" -eq 0 ]; }
 failed_with() { ! succeeded "$1" && grep -q -- "$2" "${TMP}/$1.log"; }
 check_hcs() {  # check_hcs <HCs.csv>: testdata/check_hcs.R, in the R image
     docker run --rm -v "${REPO}":"${REPO}" -w "${REPO}" "${IMAGE_R}" Rscript testdata/check_hcs.R "$1" 10
