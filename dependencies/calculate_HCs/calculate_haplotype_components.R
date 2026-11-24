@@ -22,8 +22,13 @@ option_list <- list(
   make_option("--sums", type = "character", default = NA,
               help = paste("combine's row sums file (<prefix>.sums: \"index1 sum\"), calculated before",
                            "combine --restrict dropped entries. Needed for --reweight; also used in the diagnostics")),
+  make_option("--remove_pairs", type = "character", default = NA,
+              help = paste("optional file of sample ID pairs (e.g. relatives) whose entries are removed from the matrix,",
+                           "in both directions: the first two whitespace-separated columns, other columns ignored.",
+                           "Pairs with an ID not in --samples (or a header line) are skipped")),
   make_option("--reweight", action = "store_true", default = FALSE,
-              help = "rescale each row's values to add up to its sum in --sums before the SVD"),
+              help = paste("rescale each row's values to add up to its sum in --sums (its total before",
+                           "combine --restrict and --remove_pairs removed entries) before the SVD")),
   make_option("--diagnostics", type = "character", default = NA,
               help = "optional output file for per-sample diagnostics (tab-separated)")
 )
@@ -45,6 +50,10 @@ for (required in c("matrix", "samples", "nhcs", "out")) {
   }
 }
 if (opt$reweight && is.na(opt$sums)) fail("--reweight needs --sums")
+if (!is.na(opt$remove_pairs) && !opt$reweight) {
+  cat(paste("Warning: --remove_pairs without --reweight. Rows that lose entries (e.g. a relative's) keep only",
+            "the rest of their total, which can shrink their HCs towards 0; --reweight restores their totals.\n"))
+}
 
 suppressPackageStartupMessages({
   library(data.table)
@@ -83,19 +92,38 @@ kept <- cl[, .(n_entries = .N, total_kept = sum(v), largest = max(v)), by = i]
 rows[kept, `:=`(n_entries = i.n_entries, total_kept = i.total_kept, largest = i.largest), on = "i"]
 rows[is.na(n_entries), `:=`(n_entries = 0L, total_kept = 0, largest = NA_real_)]
 
+# --- removing pairs (e.g. relatives) ---
+rows[, total_removed := 0]
+if (!is.na(opt$remove_pairs)) {
+  cat("Removing pairs\n")
+  pairs <- fread(opt$remove_pairs, header = FALSE, select = 1:2, col.names = c("id1", "id2"), colClasses = "character")
+  pairs[, `:=`(i = match(id1, samples), j = match(id2, samples))]
+  nskip <- pairs[is.na(i) | is.na(j), .N]
+  pairs <- unique(pairs[!is.na(i) & !is.na(j) & i != j])
+  both <- unique(rbind(pairs[, .(i, j)], pairs[, .(i = j, j = i)]))
+  removed <- cl[both, on = c("i", "j"), nomatch = 0]
+  cl <- cl[!both, on = c("i", "j")]
+  rows[removed[, .(r = sum(v)), by = i], total_removed := i.r, on = "i"]
+  cat(sprintf("  %d pairs (%d skipped: an ID is not in %s); removed %d entries from %d rows\n",
+              nrow(pairs), nskip, opt$samples, nrow(removed), uniqueN(removed$i)))
+}
+used <- cl[, .(n_used = .N, total_used = sum(v)), by = i]
+rows[used, `:=`(n_entries_used = i.n_used, total_used = i.total_used), on = "i"]
+rows[is.na(n_entries_used), `:=`(n_entries_used = 0L, total_used = 0)]
+
 # --- reweighting ---
 rows[, reweight_factor := 1]
 if (opt$reweight) {
-  cat("Reweighting rows to their sums before the cap\n")
-  if (rows[n_entries > 0, anyNA(total_precap)]) fail("rows in the matrix are missing from", opt$sums)
-  # every row with entries has values > 0, so total_kept > 0
-  rows[n_entries > 0, reweight_factor := total_precap / total_kept]
+  cat("Reweighting rows to their sums before the cap and removals\n")
+  if (rows[n_entries_used > 0, anyNA(total_precap)]) fail("rows in the matrix are missing from", opt$sums)
+  # every row with entries has values > 0, so total_used > 0
+  rows[n_entries_used > 0, reweight_factor := total_precap / total_used]
   cl[rows, v := v * i.reweight_factor, on = "i"]
   cat(sprintf("  scale factors range from %.6f to %.6f\n",
-              rows[n_entries > 0, min(reweight_factor)], rows[n_entries > 0, max(reweight_factor)]))
+              rows[n_entries_used > 0, min(reweight_factor)], rows[n_entries_used > 0, max(reweight_factor)]))
 }
 
-nempty <- rows[n_entries == 0, .N]
+nempty <- rows[n_entries_used == 0, .N]
 if (nempty > 0) cat(sprintf("  %d samples have no entries in the matrix; their HCs will be 0\n", nempty))
 
 # --- SVD ---
@@ -121,9 +149,11 @@ if (!is.na(opt$diagnostics)) {
   cat("Writing diagnostics\n")
   rows[, `:=`(
     frac_kept = total_kept / total_precap,      # share of the row's pre-cap total left after the cap
-    largest_share = largest / total_kept,       # share of the row taken by its largest entry
+    largest_share = largest / total_kept,       # share of the row (after the cap) taken by its largest entry
+    frac_removed = total_removed / total_kept,  # share of the row (after the cap) removed by --remove_pairs
     status = "fitted"
   )]
-  fwrite(rows[, .(sample, n_entries, total_precap, total_kept, frac_kept, largest_share, reweight_factor, status)],
+  fwrite(rows[, .(sample, n_entries, total_precap, total_kept, frac_kept, largest_share,
+                  frac_removed, n_entries_used, reweight_factor, status)],
          opt$diagnostics, sep = "\t", na = "NA", quote = FALSE)
 }

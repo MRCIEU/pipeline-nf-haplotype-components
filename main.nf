@@ -13,8 +13,11 @@ params.paint_cutoff = 500
 // combine --restrict: the maximum number of entries in the combined chunk length matrix (smallest values
 // are dropped first). The default, 2^31-1, is the most R's Matrix package can hold
 params.restrict = 2147483647
-// rescale each row of the matrix to its sum before --restrict dropped entries, before computing HCs
+// rescale each row of the matrix to its sum before --restrict (and --remove_pairs) removed entries, before computing HCs
 params.reweight = false
+// optional: a file of sample ID pairs (e.g. relatives; first two whitespace-separated columns) whose entries are
+// removed from the matrix before computing HCs. Use with --reweight
+params.remove_pairs = ""
 
 // optional: a file of sample IDs (one per line) to keep. The input files are subset to these samples before
 // painting, so only these samples are painted (against each other). Output rows follow the order of this file
@@ -112,7 +115,9 @@ workflow {
         } |\
         generate_chunk_length_matrix |\
         combine(c_samples_file) |\
-        map { file, sums, samples -> [file, sums, samples, params.nHCs, params.outfile, params.diagnostics, params.reweight.toString().toBoolean()] } |\
+        map { matrix, sums, samples -> [matrix, sums, samples, params.nHCs, params.outfile, params.diagnostics, params.reweight.toString().toBoolean(),
+                                      params.remove_pairs as boolean,
+                                      params.remove_pairs ? file(params.remove_pairs, checkIfExists: true) : file("${projectDir}/assets/NO_FILE")] } |\
         compute_HCs
 }
 
@@ -217,7 +222,7 @@ process compute_HCs {
     publishDir params.resultsdir, mode: 'copy'
 
     input:
-    tuple path(chunks), path(sums), path(samples), val(nHCs), val(outfile), val(diagnostics), val(reweight)
+    tuple path(chunks), path(sums), path(samples), val(nHCs), val(outfile), val(diagnostics), val(reweight), val(use_pairs), path(remove_pairs, stageAs: 'pairs/*')
 
     output:
     tuple path(outfile), path(diagnostics)
@@ -231,6 +236,7 @@ process compute_HCs {
         --nhcs ${nHCs} \\
         --out ${outfile} \\
         --diagnostics ${diagnostics} \\
-        ${reweight ? '--reweight' : ''}
+        ${reweight ? '--reweight' : ''} \\
+        ${use_pairs ? "--remove_pairs ${remove_pairs}" : ''}
     """
 }
