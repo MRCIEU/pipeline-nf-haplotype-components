@@ -107,6 +107,21 @@ Because the test data is thinned and has few samples, the `test` profile lowers 
 
 [testdata/make_testdata.sh](testdata/make_testdata.sh) rebuilds the test data from the full 1000G BCFs (already subset to HapMap 3 SNPs), choosing the samples with [testdata/select_samples.sh](testdata/select_samples.sh).
 
+### Automated tests
+
+Two test scripts, run by the GitHub Actions workflow [.github/workflows/test.yml](.github/workflows/test.yml) on pushes and pull requests to `main` (and on request, from the Actions tab):
+
+- **[tests/test_hc_step.R](tests/test_hc_step.R)** tests the HC step on its own, on the HC-step test data below. It checks the output, exact properties (e.g. `--fit_samples` with every sample changes nothing, and a projected copy of a fitted sample's row gets exactly that sample's HCs), the effect of `--remove_pairs`/`--project` on relatives, and errors. It runs the R script in the repository, inside the `calculate_HCs` image:
+  ```bash
+  docker run --rm -v "$PWD":/repo -w /repo mrcieu/pipeline-nf-haplotype-components:calculate_HCs Rscript tests/test_hc_step.R
+  ```
+- **[tests/test_pipeline.sh](tests/test_pipeline.sh)** runs the whole pipeline on the test profile with each option, and checks failures (e.g. input files whose samples are in a different order). It needs Nextflow and the built images:
+  ```bash
+  tests/test_pipeline.sh
+  ```
+
+The workflow builds the four images (with layer caching), installs Nextflow, and runs both scripts.
+
 ### HC-step test data
 
 [testdata/hc](testdata/hc) has test data for the HC step on its own (`calculate_haplotype_components`), without painting: a combined chunk-length matrix (`combined.chunklengths.txt.gz`), its row sums (`combined.chunklengths.sums`), `samples.txt`, `samples_superpop.txt` and `related_pairs.txt` (~1.8 MB). Unlike the thinned BCFs, it is painted at full HapMap 3 density with the production settings (`-paintSparse 100 2 500`), so it has realistic sparsity and structure, both between and within superpopulations. It has 904 samples: 750 unrelated (150 per superpopulation), 50 parent–child trios and 2 sibling pairs (102 related pairs). [testdata/make_hc_testdata.sh](testdata/make_hc_testdata.sh) rebuilds it by running the pipeline on the full 1000G BCFs with `--keep_samples` and `--publish_matrix`.
