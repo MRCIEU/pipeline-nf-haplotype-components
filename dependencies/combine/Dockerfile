@@ -7,7 +7,7 @@ RUN apk add --update --no-cache \
 
 RUN git clone https://github.com/MRCIEU/combine-pbwt-sparsepaint.git && \
     cd combine-pbwt-sparsepaint && \
-    git checkout v0.6.0
+    git checkout v0.7.0
 
 WORKDIR /combine-pbwt-sparsepaint
 

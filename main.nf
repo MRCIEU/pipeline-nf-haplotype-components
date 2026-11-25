@@ -10,9 +10,12 @@ params.paint_nchunks = 100
 params.paint_ploidy = 2
 params.paint_cutoff = 500
 
-// combine --restrict: the maximum number of entries in the combined chunk length matrix (smallest values
-// are dropped first). The default, 2^31-1, is the most R's Matrix package can hold
+// combine --restrict: the maximum number of entries in the combined chunk length matrix. The default, 2^31-1,
+// is the most R's Matrix package can hold
 params.restrict = 2147483647
+// combine --restrict-mode: which entries --restrict drops. "global": the smallest values in the whole matrix;
+// "row-fraction": the same fraction of every row's entries (each row keeps its largest values)
+params.restrict_mode = "global"
 // rescale each row of the matrix to its sum before --restrict (and --remove_pairs) removed entries, before computing HCs
 params.reweight = false
 // optional: a file of sample ID pairs (e.g. relatives; first two whitespace-separated columns) whose entries are
@@ -41,6 +44,9 @@ workflow {
 
     if (params.project.toString().toBoolean() && !params.fit_samples) {
         error "--project needs --fit_samples"
+    }
+    if (!(params.restrict_mode in ["global", "row-fraction"])) {
+        error "--restrict_mode must be global or row-fraction, not '${params.restrict_mode}'"
     }
 
     // a (channel of a) tuple of the chromosome index and the path to the bcf file for that chromosome,
@@ -228,7 +234,7 @@ process generate_chunk_length_matrix {
 
     script:
     """
-    combine -c ${chunk_filenames_list} -s ${snp_counts_list} -m ${map_lengths_list} -r=${params.restrict} -o combined.chunklengths
+    combine -c ${chunk_filenames_list} -s ${snp_counts_list} -m ${map_lengths_list} -r=${params.restrict} --restrict-mode=${params.restrict_mode} -o combined.chunklengths
     """
 }
 
