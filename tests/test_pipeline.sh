@@ -61,6 +61,18 @@ check "succeeds" succeeded restrict
 check "some rows lost entries to the cap (frac_kept < 1)" awk -F'\t' 'NR>1 && $5 < 0.99 {found=1} END {exit !found}' "${TMP}/restrict/HC_diagnostics.tsv"
 check "relatives' rows lost entries (frac_removed > 0)" awk -F'\t' 'NR>1 && $7 > 0 {found=1} END {exit !found}' "${TMP}/restrict/HC_diagnostics.tsv"
 
+echo "--restrict --restrict_mode row-fraction"
+nf rowfrac --restrict 50000 --restrict_mode row-fraction
+check "succeeds" succeeded rowfrac
+# every row keeps the same share of its entries in the uncapped default run (global: 0.6% to 76% here)
+kept_share_spread() {  # kept_share_spread <diagnostics>: min and max of n_entries / uncapped n_entries
+    join -t $'\t' <(tail -n +2 "${TMP}/default/HC_diagnostics.tsv" | cut -f1,2 | sort) <(tail -n +2 "$1" | cut -f1,2 | sort) |
+        awk -F'\t' '{r = $3 / $2; if (NR == 1 || r < mn) mn = r; if (r > mx) mx = r} END {print mn, mx}'
+}
+check "every row keeps the same share of its entries" awk -v s="$(kept_share_spread "${TMP}/rowfrac/HC_diagnostics.tsv")" \
+    'BEGIN {split(s, r, " "); exit !(r[1] > 0 && r[1] >= 0.9 * r[2])}'
+check "HCs pass testdata/check_hcs.R" check_hcs "${TMP}/rowfrac/HCs.csv"
+
 echo "--fit_samples (unrelated) + --project + --reweight"
 nf project --fit_samples "${TMP}/unrelated.txt" --project --reweight
 check "succeeds" succeeded project
@@ -75,6 +87,8 @@ check "rows are the kept samples, in the keep file's order" cmp <(tail -n +2 "${
 echo "Errors"
 nf e_project --project
 check "--project without --fit_samples fails" failed_with e_project "needs --fit_samples"
+nf e_mode --restrict_mode per-row
+check "an unknown --restrict_mode fails" failed_with e_mode "must be global or row-fraction"
 nf e_keep --keep_samples "${TMP}/does_not_exist.txt"
 check "a missing --keep_samples file fails" failed_with e_keep "No such file"
 printf 'NOT_A_SAMPLE\n' > "${TMP}/typo.txt"
