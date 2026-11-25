@@ -10,8 +10,8 @@ params.paint_nchunks = 100
 params.paint_ploidy = 2
 params.paint_cutoff = 500
 
-// combine --restrict: the maximum number of entries in the combined chunk length matrix. The default, 2^31-1,
-// is the most R's Matrix package can hold
+// combine --restrict: the maximum number of entries in the combined chunk length matrix, e.g. to limit memory use.
+// The default, 2^31-1, was the most the original R HC step could hold (hcsvd has no limit)
 params.restrict = 2147483647
 // combine --restrict-mode: which entries --restrict drops. "global": the smallest values in the whole matrix;
 // "row-fraction": the same fraction of every row's entries (each row keeps its largest values)
@@ -132,7 +132,7 @@ workflow {
         } |\
         generate_chunk_length_matrix |\
         combine(c_samples_file) |\
-        map { matrix, sums, samples -> [matrix, sums, samples, params.nHCs, params.outfile, params.diagnostics, params.reweight.toString().toBoolean(),
+        map { _text, sums, rows, samples -> [rows, sums, samples, params.nHCs, params.outfile, params.diagnostics, params.reweight.toString().toBoolean(),
                                       params.remove_pairs as boolean,
                                       params.remove_pairs ? file(params.remove_pairs, checkIfExists: true) : file("${projectDir}/assets/NO_FILE"),
                                       params.fit_samples as boolean,
@@ -223,34 +223,38 @@ process paint {
     """
 }
 
+// combine writes the matrix as gzipped text (published with --publish_matrix) and, with --binary, as a binary row
+// stream (rows.bin), which compute_HCs reads
 process generate_chunk_length_matrix {
-    publishDir "${params.resultsdir}/matrix", mode: 'copy', enabled: params.publish_matrix.toString().toBoolean()
+    publishDir "${params.resultsdir}/matrix", mode: 'copy', pattern: "combined.chunklengths.{txt.gz,sums}", enabled: params.publish_matrix.toString().toBoolean()
 
     input:
     tuple path(chunk_files), path(chunk_filenames_list), path(snp_counts_list), path(map_lengths_list)
 
     output:
-    tuple path("combined.chunklengths.txt.gz"), path("combined.chunklengths.sums")
+    tuple path("combined.chunklengths.txt.gz"), path("combined.chunklengths.sums"), path("combined.chunklengths.rows.bin")
 
     script:
     """
-    combine -c ${chunk_filenames_list} -s ${snp_counts_list} -m ${map_lengths_list} -r=${params.restrict} --restrict-mode=${params.restrict_mode} -o combined.chunklengths
+    combine -c ${chunk_filenames_list} -s ${snp_counts_list} -m ${map_lengths_list} -r=${params.restrict} --restrict-mode=${params.restrict_mode} --binary -o combined.chunklengths
     """
 }
 
+// HCs from the matrix with hcsvd (hc-svd)
 process compute_HCs {
     publishDir params.resultsdir, mode: 'copy'
 
     input:
-    tuple path(chunks), path(sums), path(samples), val(nHCs), val(outfile), val(diagnostics), val(reweight), val(use_pairs), path(remove_pairs, stageAs: 'pairs/*'), val(use_fit), path(fit_samples, stageAs: 'fit/*'), val(project)
+    tuple path(matrix), path(sums), path(samples), val(nHCs), val(outfile), val(diagnostics), val(reweight), val(use_pairs), path(remove_pairs, stageAs: 'pairs/*'), val(use_fit), path(fit_samples, stageAs: 'fit/*'), val(project)
 
     output:
     tuple path(outfile), path(diagnostics)
 
     script:
     """
-    calculate_haplotype_components \\
-        --matrix ${chunks} \\
+    hcsvd \\
+        --threads ${task.cpus} \\
+        --matrix ${matrix} \\
         --samples ${samples} \\
         --sums ${sums} \\
         --nhcs ${nHCs} \\
@@ -262,3 +266,4 @@ process compute_HCs {
         ${project ? '--project' : ''}
     """
 }
+

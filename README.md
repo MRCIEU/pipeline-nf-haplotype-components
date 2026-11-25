@@ -16,9 +16,9 @@ Across chromosomes:
 
 3. **`check_samples`** — checks that all input files have the same samples in the same order, and writes the list of sample IDs (`bcftools`). The chunk-length matrix refers to samples by their position in this list.
 
-4. **`generate_chunk_length_matrix`** — combines the per-chromosome chunklengths files, weighted by SNP counts and genetic map lengths, into a single genome-wide sparse chunk-length matrix (`combine`, a Rust CLI tool). If the matrix has more than `--restrict` entries, some are dropped: the smallest in the whole matrix, or the same fraction of every row (`--restrict_mode`). `combine` also writes each row's sum, calculated before any entries are dropped.
+4. **`generate_chunk_length_matrix`** — combines the per-chromosome chunklengths files, weighted by SNP counts and genetic map lengths, into a single genome-wide sparse chunk-length matrix (`combine`, a Rust CLI tool). If the matrix has more than `--restrict` entries, some are dropped: the smallest in the whole matrix, or the same fraction of every row (`--restrict_mode`). `combine` also writes each row's sum, calculated before any entries are dropped, and a binary copy of the matrix for `compute_HCs`.
 
-5. **`compute_HCs`** — Optionally removes the entries of listed sample pairs, e.g. relatives (`--remove_pairs`), keeps only some samples' rows and columns for the SVD (`--fit_samples`), optionally projecting the others onto it (`--project`), and rescales each row of the matrix back to its sum before entries were removed (`--reweight`). Then it computes a truncated SVD from the sparse matrix, and writes the resulting haplotype components and per-sample diagnostics (`calculate_haplotype_components`, an R script using `sparsesvd`).
+5. **`compute_HCs`** — Optionally removes the entries of listed sample pairs, e.g. relatives (`--remove_pairs`), keeps only some samples' rows and columns for the SVD (`--fit_samples`), optionally projecting the others onto it (`--project`), and rescales each row of the matrix back to its sum before entries were removed (`--reweight`). Then it computes a truncated SVD of log10(matrix + 1), and writes the resulting haplotype components and per-sample diagnostics ([`hcsvd`](https://github.com/MRCIEU/hc-svd), a Rust program using a parallel randomised SVD). It gives the same HCs as the original R step, which used `sparsesvd`, without its limit of 2^31−1 matrix entries.
 
 ```mermaid
 flowchart TD
@@ -55,7 +55,7 @@ Each process runs in its own Docker container (see [Dependencies](#dependencies)
 | `--paint_nchunks` | No       | `100`        | `pbwt -paintSparse`: number of chunks per region.                                                                                                                    |
 | `--paint_ploidy`  | No       | `2`          | `pbwt -paintSparse`: ploidy.                                                                                                                                         |
 | `--paint_cutoff`  | No       | `500`        | `pbwt -paintSparse`: minimum length (in SNPs) of a haplotype match for it to be counted.                                                                            |
-| `--restrict`      | No       | `2147483647` | Maximum number of entries in the combined chunk-length matrix (`combine --restrict`). The default, 2^31−1, is the most R's Matrix package can hold. |
+| `--restrict`      | No       | `2147483647` | Maximum number of entries in the combined chunk-length matrix (`combine --restrict`), e.g. to limit memory use. The default, 2^31−1, was the most the original R HC step could hold; `hcsvd` has no limit. |
 | `--restrict_mode` | No       | `global`     | Which entries `--restrict` drops (`combine --restrict-mode`). `global`: the smallest values in the whole matrix, so individuals whose values are mostly small can lose most of their row. `row-fraction`: the same fraction of every row's entries (each row keeps its largest values). |
 | `--reweight`      | No       | `false`      | Before computing HCs, rescale each row of the matrix so it adds up to its total before `--restrict` and `--remove_pairs` removed entries (from `combine`'s `.sums` file). Has no effect if no entries were removed. |
 | `--remove_pairs`  | No       | *(none)*     | Path to a file of sample-ID pairs (e.g. relatives, such as parent–offspring and sibling pairs) whose entries are removed from the matrix, in both directions, before computing HCs. The first two whitespace-separated columns are used; other columns are ignored. Pairs with an ID not in the data (or a header line) are skipped. Use with `--reweight`: on its own, removing a relative's entry leaves the rest of the row small, which shrinks that sample's HCs towards 0. |
@@ -131,10 +131,10 @@ A small test dataset is included in [testdata](testdata): 334 samples from the 1
 
 ```bash
 nextflow run main.nf -profile test
-Rscript testdata/check_hcs.R results/HCs.csv 10 hcs.png
+testdata/check_hcs.sh results/HCs.csv 10
 ```
 
-`check_hcs.R` checks the shape of the output (one row per sample, 10 HCs, all values finite) and that the leading HCs separate the superpopulations, and optionally writes a scatter plot of HC1–HC4.
+`check_hcs.sh` checks the shape of the output (one row per sample, 10 HCs, all values finite) and that the leading HCs separate the superpopulations.
 
 Because the test data is thinned and has few samples, the `test` profile lowers `paint_cutoff` to 20 SNPs; with the default (500) almost no matches pass the cutoff. The test profile also sets `nHCs` to 10.
 
@@ -142,33 +142,29 @@ Because the test data is thinned and has few samples, the `test` profile lowers 
 
 ### Automated tests
 
-Two test scripts, run by the GitHub Actions workflow [.github/workflows/test.yml](.github/workflows/test.yml) on pushes and pull requests to `main` (and on request, from the Actions tab):
+[tests/test_pipeline.sh](tests/test_pipeline.sh) runs the whole pipeline on the test profile with each option, and checks failures (e.g. input files whose samples are in a different order). It needs Nextflow and the built images:
 
-- **[tests/test_hc_step.R](tests/test_hc_step.R)** tests the HC step on its own, on the HC-step test data below. It checks the output, exact properties (e.g. `--fit_samples` with every sample changes nothing, and a projected copy of a fitted sample's row gets exactly that sample's HCs), the effect of `--remove_pairs`/`--project` on relatives, and errors. It runs the R script in the repository, inside the `calculate_HCs` image:
-  ```bash
-  docker run --rm -v "$PWD":/repo -w /repo mrcieu/pipeline-nf-haplotype-components:calculate_HCs Rscript tests/test_hc_step.R
-  ```
-- **[tests/test_pipeline.sh](tests/test_pipeline.sh)** runs the whole pipeline on the test profile with each option, and checks failures (e.g. input files whose samples are in a different order). It needs Nextflow and the built images:
-  ```bash
-  tests/test_pipeline.sh
-  ```
+```bash
+tests/test_pipeline.sh
+```
 
-The workflow builds the four images (with layer caching), installs Nextflow, and runs both scripts.
+The GitHub Actions workflow [.github/workflows/test.yml](.github/workflows/test.yml) builds the images (with layer caching), installs Nextflow and runs it, on pushes and pull requests to `main` (and on request, from the Actions tab).
 
-### HC-step test data
-
-[testdata/hc](testdata/hc) has test data for the HC step on its own (`calculate_haplotype_components`), without painting: a combined chunk-length matrix (`combined.chunklengths.txt.gz`), its row sums (`combined.chunklengths.sums`), `samples.txt`, `samples_superpop.txt` and `related_pairs.txt` (~1.8 MB). Unlike the thinned BCFs, it is painted at full HapMap 3 density with the production settings (`-paintSparse 100 2 500`), so it has realistic sparsity and structure, both between and within superpopulations. It has 904 samples: 750 unrelated (150 per superpopulation), 50 parent–child trios and 2 sibling pairs (102 related pairs). [testdata/make_hc_testdata.sh](testdata/make_hc_testdata.sh) rebuilds it by running the pipeline on the full 1000G BCFs with `--keep_samples` and `--publish_matrix`.
+The HC step itself is tested in [hc-svd](https://github.com/MRCIEU/hc-svd): against the original R step, and for what its options do (e.g. to relatives' HCs), on a painting of 904 1000 Genomes samples.
 
 ## Dependencies
 
 Each pipeline process runs in a dedicated Docker image, built from the [dependencies](dependencies) directory:
 
-| Directory                                           | Tool(s)                                                             |
-|-----------------------------------------------------|---------------------------------------------------------------------|
-| [dependencies/bcftools](dependencies/bcftools)      | [`bcftools`](https://samtools.github.io/bcftools/) 1.24             |
-| [dependencies/pbwt](dependencies/pbwt)              | [`pbwt`](https://github.com/richarddurbin/pbwt) v2.1                |
-| [dependencies/combine](dependencies/combine)        | [`combine`](https://github.com/MRCIEU/combine-pbwt-sparsepaint) v0.7.0 — a Rust CLI tool that merges per-chromosome chunklengths files into a single sparse genome-wide matrix |
-| [dependencies/calculate_HCs](dependencies/calculate_HCs) | `calculate_haplotype_components` — an R script computing sparse SVD-based haplotype components |
+| Directory | Tool(s) | Licence |
+|---|---|---|
+| [dependencies/bcftools](dependencies/bcftools) | [`bcftools`](https://samtools.github.io/bcftools/) 1.24 | MIT/Expat |
+| [dependencies/pbwt](dependencies/pbwt) | [`pbwt`](https://github.com/richarddurbin/pbwt) v2.1 | Apache-2.0 |
+| [dependencies/combine](dependencies/combine) | [`combine`](https://github.com/MRCIEU/combine-pbwt-sparsepaint) v0.8.0: merges the per-chromosome chunklengths files into one genome-wide sparse matrix (Rust) | GPL-3.0 |
+| [dependencies/hc_svd](dependencies/hc_svd) | [`hcsvd`](https://github.com/MRCIEU/hc-svd) v0.2.0: haplotype components by randomised SVD (Rust) | MIT |
 
-Each directory contains a `Dockerfile` and a `build.sh` script to build and tag the corresponding image. Tags are given for example purposes. They must correspond to the names in `nextflow.config`
+Each directory contains a `Dockerfile` and a `build.sh` script to build and tag the corresponding image. Each image includes its programs' licence files, under `/usr/share/licenses`. Tags are given for example purposes. They must correspond to the names in `nextflow.config`
 
+## Licence
+
+MIT (see [LICENSE](LICENSE)). The programs the pipeline runs have their own licences (see [Dependencies](#dependencies) and [NOTICE](NOTICE)).

@@ -17,5 +17,7 @@ RUN apt-get -y update && \
 COPY --from=build /bcftools-1.24/bcftools usr/local/bin/bcftools
 COPY --from=build /bcftools-1.24/htslib-1.24/tabix usr/local/bin/tabix
 COPY --from=build /bcftools-1.24/htslib-1.24/bgzip usr/local/bin/bgzip
+COPY --from=build /bcftools-1.24/LICENSE /usr/share/licenses/bcftools/LICENSE
+COPY --from=build /bcftools-1.24/htslib-1.24/LICENSE /usr/share/licenses/htslib/LICENSE
 
 CMD ["bcftools", "-h"]
