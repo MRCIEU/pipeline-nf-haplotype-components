@@ -1,0 +1,26 @@
+pipeline-nf-haplotype-components is licensed under the MIT License; see LICENSE.
+
+The pipeline runs the following third-party programs, each in a Docker image
+built from dependencies/<tool>/. This repository holds only their Dockerfiles:
+each program is downloaded and built when its image is built, and its licence
+files are copied into the image, under /usr/share/licenses/<program>/.
+
+  - bcftools 1.24 (https://github.com/samtools/bcftools), under the MIT/Expat
+    License
+  - htslib 1.24 and 1.23 (https://github.com/samtools/htslib), built into
+    bcftools and pbwt, under the MIT/Expat License, with some files under the
+    Modified (3-clause) BSD License
+  - pbwt v2.1 (https://github.com/richarddurbin/pbwt), Copyright (C) Genome
+    Research Limited, under the Apache License 2.0, as stated in its source
+    files
+  - combine v0.8.0 (https://github.com/MRCIEU/combine-pbwt-sparsepaint), under
+    the GNU General Public License, version 3; its third-party notices are in
+    its NOTICE file
+  - hcsvd v0.2.0 (https://github.com/MRCIEU/hc-svd), under the MIT License; its
+    third-party notices are in its NOTICE file
+
+The images are based on Debian and Alpine Linux, whose packages are distributed
+under their own licences.
+
+The test data in testdata/ is derived from the 1000 Genomes Project's
+high-coverage phased genotypes (https://www.internationalgenome.org/).

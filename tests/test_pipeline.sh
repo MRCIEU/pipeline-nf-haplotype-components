@@ -11,7 +11,6 @@ set -uo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 cd "${REPO}"
 
-IMAGE_R=mrcieu/pipeline-nf-haplotype-components:calculate_HCs
 IMAGE_BCFTOOLS=mrcieu/pipeline-nf-haplotype-components:bcftools-1.24
 
 # temporary files go inside the repository, so docker can see them (e.g. Docker Desktop file sharing)
@@ -31,9 +30,7 @@ nf() {  # nf <name> <args...>: run the pipeline on the test profile; results in 
 }
 succeeded() { [ "$(cat "${TMP}/$1.status")" -eq 0 ]; }
 failed_with() { ! succeeded "$1" && grep -q -- "$2" "${TMP}/$1.log"; }
-check_hcs() {  # check_hcs <HCs.csv>: testdata/check_hcs.R, in the R image
-    docker run --rm -v "${REPO}":"${REPO}" -w "${REPO}" "${IMAGE_R}" Rscript testdata/check_hcs.R "$1" 10
-}
+check_hcs() { testdata/check_hcs.sh "$1" 10; }
 statuses() { tail -n +2 "$1" | awk -F'\t' '{print $NF}' | sort | uniq -c | awk '{printf "%s=%s ", $2, $1}'; }
 
 related_ids() { awk '{print $1; print $2}' testdata/related_pairs.txt | sort -u; }
@@ -44,7 +41,7 @@ awk '$2=="AFR"{print $1}' testdata/samples_superpop.txt | reverse_lines > "${TMP
 echo "Default test run"
 nf default
 check "succeeds" succeeded default
-check "HCs pass testdata/check_hcs.R" check_hcs "${TMP}/default/HCs.csv"
+check "HCs pass testdata/check_hcs.sh" check_hcs "${TMP}/default/HCs.csv"
 check "diagnostics have one row per sample" test "$(($(wc -l < "${TMP}/default/HC_diagnostics.tsv") - 1))" -eq "$(wc -l < testdata/samples.txt)"
 check "no matrix published without --publish_matrix" test ! -e "${TMP}/default/matrix"
 
@@ -52,6 +49,7 @@ echo "--publish_matrix"
 nf publish --publish_matrix
 check "succeeds" succeeded publish
 check "matrix, sums and samples published" test -s "${TMP}/publish/matrix/combined.chunklengths.txt.gz" -a -s "${TMP}/publish/matrix/combined.chunklengths.sums" -a -s "${TMP}/publish/matrix/samples.txt"
+check "the binary matrix is not published" test ! -e "${TMP}/publish/matrix/combined.chunklengths.rows.bin"
 check "published samples.txt is the BCF sample order" cmp "${TMP}/publish/matrix/samples.txt" testdata/samples.txt
 check "HCs identical to the default run" cmp "${TMP}/publish/HCs.csv" "${TMP}/default/HCs.csv"
 
@@ -71,13 +69,13 @@ kept_share_spread() {  # kept_share_spread <diagnostics>: min and max of n_entri
 }
 check "every row keeps the same share of its entries" awk -v s="$(kept_share_spread "${TMP}/rowfrac/HC_diagnostics.tsv")" \
     'BEGIN {split(s, r, " "); exit !(r[1] > 0 && r[1] >= 0.9 * r[2])}'
-check "HCs pass testdata/check_hcs.R" check_hcs "${TMP}/rowfrac/HCs.csv"
+check "HCs pass testdata/check_hcs.sh" check_hcs "${TMP}/rowfrac/HCs.csv"
 
 echo "--fit_samples (unrelated) + --project + --reweight"
 nf project --fit_samples "${TMP}/unrelated.txt" --project --reweight
 check "succeeds" succeeded project
 check "unrelated fitted, relatives projected" test "$(statuses "${TMP}/project/HC_diagnostics.tsv")" = "fitted=$(wc -l < "${TMP}/unrelated.txt" | tr -d ' ') projected=$(related_ids | wc -l | tr -d ' ') "
-check "HCs pass testdata/check_hcs.R" check_hcs "${TMP}/project/HCs.csv"
+check "HCs pass testdata/check_hcs.sh" check_hcs "${TMP}/project/HCs.csv"
 
 echo "--keep_samples (AFR, reversed)"
 nf keep --keep_samples "${TMP}/afr_reversed.txt"
