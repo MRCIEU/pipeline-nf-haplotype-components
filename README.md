@@ -60,7 +60,7 @@ Each process runs in its own Docker container (see [Dependencies](#dependencies)
 | `--reweight`      | No       | `false`      | Before computing HCs, rescale each row of the matrix so it adds up to its total before `--restrict` and `--remove_pairs` removed entries (from `combine`'s `.sums` file). Has no effect if no entries were removed. |
 | `--remove_pairs`  | No       | *(none)*     | Path to a file of sample-ID pairs (e.g. relatives, such as parent–offspring and sibling pairs) whose entries are removed from the matrix, in both directions, before computing HCs. The first two whitespace-separated columns are used; other columns are ignored. Pairs with an ID not in the data (or a header line) are skipped. Use with `--reweight`: on its own, removing a relative's entry leaves the rest of the row small, which shrinks that sample's HCs towards 0. |
 | `--fit_samples`   | No       | *(none)*     | Path to a file of sample IDs, one per line. Only these samples' rows and columns of the matrix are used for the SVD (their entries to other samples are removed), and only they get HCs, in the order of the input files. E.g. HCs within one group, from a painting of everyone (unlike `--keep_samples`, which paints only the listed samples). IDs not in the data are skipped. Use with `--reweight`. |
-| `--project`       | No       | `false`      | With `--fit_samples`: also give every other sample HCs, by projecting its row onto the SVD of the fitted samples (HCs = row × V·D^(−1/2), where the SVD of the fitted samples' matrix is U·D·Vᵀ and their HCs are U·√D). A projected sample's row has only its entries to fitted samples, after `--remove_pairs` and `--reweight`. E.g. fit on unrelated samples and project their relatives, so everyone has HCs on the same basis. Use with `--reweight`. |
+| `--project`       | No       | `false`      | With `--fit_samples`: also give every other sample HCs, by projecting its row onto the SVD of the fitted samples (HCs = row × V·D^(−1/2), where the SVD of the fitted samples' matrix is U·D·Vᵀ and their HCs are U·√D). A projected sample's row has only its entries to fitted samples, after `--remove_pairs` and `--reweight`. E.g. fit on unrelated samples and project their relatives, so everyone has HCs on the same basis. When projecting relatives, use with `--remove_pairs` and `--reweight` (see [Handling relatives](#handling-relatives)). |
 
 ## Usage
 
@@ -69,6 +69,38 @@ nextflow run main.nf \
     --vcf_file_list /path/to/chr1-22_vcf_list.txt \
     --map_file /path/to/chr1-22.maplengths.txt
 ```
+
+### Handling relatives
+
+To fit the HCs on unrelated individuals and give their relatives HCs by projection, use **all four** options:
+
+```bash
+nextflow run main.nf ... \
+    --fit_samples unrelated.txt \
+    --project \
+    --remove_pairs related_pairs.txt \
+    --reweight
+```
+
+**Why all four:**
+- `--fit_samples` + `--project` alone is not enough when a relative's close relatives are among the fitted samples, which is the usual case: e.g. a standard unrelated set keeps one person from each related pair.
+- A painting row describes who a person copies from, so a close relative dominates it. In 1000G a median 92% of a child's row goes to its parents.
+- Projected without removing those entries, relatives' HCs shrink to about a quarter of the size of unrelated people's, so they under-describe ancestry.
+- `--remove_pairs` deletes the entries between listed relatives; `--reweight` restores each row's total. With them, relatives' HCs come out at about 0.8× the size.
+
+**Two cautions:**
+- **Projected HCs are noisier than fitted ones.** In 1000G trios, a child's projected HCs are on the right scale but about as far from its parents' average as a random member of its population is. That's fine for population-structure adjustment.
+- **Within-family analyses** (e.g. sibling GWAS) should give family members consistent covariates (e.g. the family average) or leave HCs out. Differences between relatives' HCs are largely method noise.
+
+**The pairs file:**
+- `--remove_pairs` reads the first two whitespace-separated columns.
+- From a KING `.kin0` file (columns `FID1 ID1 FID2 ID2 ... Kinship`), take the IDs and filter on kinship. For example, first- and second-degree relatives (kinship ≥ 0.0884):
+
+  ```bash
+  awk 'NR == 1 {for (i = 1; i <= NF; i++) if ($i == "Kinship") k = i; next} $k >= 0.0884 {print $2, $4}' king.kin0 > related_pairs.txt
+  ```
+
+- A first- or second-degree cut-off is the safer default. With third-degree pairs, many more are removed. In founder or isolated populations, where background relatedness is high, that can strip out the recent shared ancestry HCs are meant to capture.
 
 ## Output
 
