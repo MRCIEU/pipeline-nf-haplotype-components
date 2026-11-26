@@ -2,7 +2,7 @@ FROM rust:1.94-bookworm AS build
 
 RUN git clone https://github.com/MRCIEU/hc-svd.git && \
     cd hc-svd && \
-    git checkout v0.2.0
+    git checkout v0.3.0
 
 WORKDIR /hc-svd
 

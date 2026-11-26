@@ -16,7 +16,7 @@ files are copied into the image, under /usr/share/licenses/<program>/.
   - combine v0.8.0 (https://github.com/MRCIEU/combine-pbwt-sparsepaint), under
     the GNU General Public License, version 3; its third-party notices are in
     its NOTICE file
-  - hcsvd v0.2.0 (https://github.com/MRCIEU/hc-svd), under the MIT License; its
+  - hcsvd v0.3.0 (https://github.com/MRCIEU/hc-svd), under the MIT License; its
     third-party notices are in its NOTICE file
 
 The images are based on Debian and Alpine Linux, whose packages are distributed

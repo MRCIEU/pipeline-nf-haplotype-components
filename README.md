@@ -18,7 +18,7 @@ Across chromosomes:
 
 4. **`generate_chunk_length_matrix`** — combines the per-chromosome chunklengths files, weighted by SNP counts and genetic map lengths, into a single genome-wide sparse chunk-length matrix (`combine`, a Rust CLI tool). If the matrix has more than `--restrict` entries, some are dropped: the smallest in the whole matrix, or the same fraction of every row (`--restrict_mode`). `combine` also writes each row's sum, calculated before any entries are dropped, and a binary copy of the matrix for `compute_HCs`.
 
-5. **`compute_HCs`** — Optionally removes the entries of listed sample pairs, e.g. relatives (`--remove_pairs`), keeps only some samples' rows and columns for the SVD (`--fit_samples`), optionally projecting the others onto it (`--project`), and rescales each row of the matrix back to its sum before entries were removed (`--reweight`). Then it computes a truncated SVD of log10(matrix + 1), and writes the resulting haplotype components and per-sample diagnostics ([`hcsvd`](https://github.com/MRCIEU/hc-svd), a Rust program using a parallel randomised SVD). It gives the same HCs as the original R step, which used `sparsesvd`, without its limit of 2^31−1 matrix entries.
+5. **`compute_HCs`** — Optionally removes the entries of listed sample pairs, e.g. relatives (`--remove_pairs`), keeps only some samples' rows and columns for the SVD (`--fit_samples`), optionally projecting the others onto it (`--project`), and rescales each row of the matrix back to its sum before entries were removed (`--reweight`). Then it computes a truncated SVD of log10(matrix + 1), and writes the resulting haplotype components and per-sample diagnostics ([`hcsvd`](https://github.com/MRCIEU/hc-svd), a Rust program using a parallel restarted Lanczos SVD). It gives the same HCs as the original R step, which used `sparsesvd`, without its limit of 2^31−1 matrix entries.
 
 ```mermaid
 flowchart TD
@@ -161,7 +161,7 @@ Each pipeline process runs in a dedicated Docker image, built from the [dependen
 | [dependencies/bcftools](dependencies/bcftools) | [`bcftools`](https://samtools.github.io/bcftools/) 1.24 | MIT/Expat |
 | [dependencies/pbwt](dependencies/pbwt) | [`pbwt`](https://github.com/richarddurbin/pbwt) v2.1 | Apache-2.0 |
 | [dependencies/combine](dependencies/combine) | [`combine`](https://github.com/MRCIEU/combine-pbwt-sparsepaint) v0.8.0: merges the per-chromosome chunklengths files into one genome-wide sparse matrix (Rust) | GPL-3.0 |
-| [dependencies/hc_svd](dependencies/hc_svd) | [`hcsvd`](https://github.com/MRCIEU/hc-svd) v0.2.0: haplotype components by randomised SVD (Rust) | MIT |
+| [dependencies/hc_svd](dependencies/hc_svd) | [`hcsvd`](https://github.com/MRCIEU/hc-svd) v0.3.0: haplotype components by truncated SVD (restarted Lanczos; Rust) | MIT |
 
 Each directory contains a `Dockerfile` and a `build.sh` script to build and tag the corresponding image. Each image includes its programs' licence files, under `/usr/share/licenses`. Tags are given for example purposes. They must correspond to the names in `nextflow.config`
 
